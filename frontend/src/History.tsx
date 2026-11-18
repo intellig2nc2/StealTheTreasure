@@ -13,6 +13,7 @@ export default function History({ runId, completed, warning }: { runId: string; 
   const [page, setPage] = useState(0)
   const [records, setRecords] = useState<Records>()
   const [error, setError] = useState(false)
+  const [downloadError, setDownloadError] = useState(false)
 
   useEffect(() => {
     let current = true
@@ -36,12 +37,33 @@ export default function History({ runId, completed, warning }: { runId: string; 
 
   const { runs, run, rows } = records ?? { runs: [], rows: [] }
 
+  async function download() {
+    if (!run) return
+    try {
+      const episodes = (await listEpisodes(run.id, 1, run.completed)).reverse()
+      const header = ['회차', '단계', '결과', '정산 점수', '보석 가치', '행동 수', '최종 체력', '최종 소음', '최종 무게']
+      const lines = episodes.map(row => [row.episode, row.stage, outcomeLabels[row.outcome], row.reward, row.value,
+        row.actions, row.hp, row.noise, row.weight])
+      const csv = [header, ...lines].map(line => line.map(value => `"${String(value).replaceAll('"', '""')}"`).join(',')).join('\r\n')
+      const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `cerberus-${run.id}.csv`
+      link.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+      setDownloadError(false)
+    } catch {
+      setDownloadError(true)
+    }
+  }
+
   return <>
     <section className="intro stats-intro">
       <div><p className="kicker">에피소드별 결과</p><h1>학습 <span>기록</span></h1>
         <p>완료된 학습 에피소드를 실행별로 확인하세요. 기록은 이 브라우저에 저장됩니다.</p></div>
     </section>
     {warning && <p className="error" role="alert">{warning}</p>}
+    {downloadError && <p className="error" role="alert">학습 기록을 다운로드할 수 없습니다.</p>}
     {error ? <p className="panel empty" role="alert">브라우저의 학습 기록을 불러올 수 없습니다.</p>
       : !records ? <p className="panel empty" role="status">학습 기록을 불러오는 중</p>
       : !run ? <section className="panel empty"><h2>아직 저장된 학습 기록이 없습니다</h2>
@@ -53,6 +75,7 @@ export default function History({ runId, completed, warning }: { runId: string; 
             {runs.map(item => <option key={item.id} value={item.id}>{date.format(item.startedAt)} · 시드 {item.seed}</option>)}
           </select></label>
           <p>{run.customMap && '내 지도 · '}{algorithmLabels[run.algorithm ?? 'dqn']} · {run.portals === false ? '지름길 없음' : '지름길 사용'}</p>
+          <button type="button" onClick={download}>CSV 다운로드</button>
           <p>{run.completed.toLocaleString('ko-KR')} / {run.target.toLocaleString('ko-KR')}회 완료</p>
         </div>
         <div className="history-scroll" tabIndex={0} role="region" aria-label="에피소드별 학습 기록">
