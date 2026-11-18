@@ -44,7 +44,7 @@ function paths(layout: Layout, origin: Point, avoidHazards = false, blocked?: Se
     const distance = routes.get(previous)!.distance + 1
     neighbors(point, ([x, y]) => {
       const tile = layout.grid[y][x]
-      return tile === 1 || (avoidHazards && (tile === 3 || tile === 4 || tile === 7))
+      return tile === 1 || (avoidHazards && (tile === 3 || tile === 4 || tile === 7 || tile === 8))
     }).forEach((entry, action) => {
       if (!entry) return
       const next = destination(entry, layout.portals)
@@ -252,6 +252,9 @@ export class CaveGame {
             this.hp -= 10
             this.noise = (Math.round(this.noise * 10) + 150) / 10
             this.event = 'rock'
+            break
+          case 8:
+            this.noise = 100
             break
           case 5:
             this.hp = Math.min(100, this.hp + 25)

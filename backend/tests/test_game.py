@@ -74,16 +74,16 @@ def test_all_gems_add_two_noise(env, position):
 
 
 def test_exact_noise_threshold_and_heavy_movement(env):
-    env.noise, env.weight, env.value = 99.6, 30, 30
+    env.noise, env.weight, env.value = 99, 30, 30
     assert env.step(3)[1] == 0
-    assert env.noise == 99.8 and env.outcome == "running"
+    assert env.noise == 99.5 and env.outcome == "running"
     _, reward, terminated, _, info = env.step(2)
     assert env.noise == 100
     assert (reward, terminated, info["death_reason"]) == (0, True, "cerberus")
 
 
 def test_noise_crossing_does_not_trigger_silence_first(env):
-    env.position, env.noise = (16, 6), 99.8
+    env.position, env.noise = (16, 6), 99.5
     env.step(0)
     assert env.noise == 100 and env.outcome == "cerberus"
     assert env.grid[5, 16] == Tile.SILENCE
@@ -112,16 +112,16 @@ def test_silence_is_clamped_and_consumed_once(env):
     assert env.hp == 94 and env.noise == 0 and obs["used_items"][5, 16]
     env.step(1)
     assert not env.mask()[0]
-    assert env.hp == 93 and env.noise == 0.2
+    assert env.hp == 93 and env.noise == 0.5
 
 
 def test_hazards_and_portal_trigger_order(env):
     env.position = (3, 11)
     env.step(1)
-    assert (env.hp, env.noise, env.event) == (89, 15.2, "rock")
+    assert (env.hp, env.noise, env.event) == (89, 15.5, "rock")
     env.position = (6, 8)
     env.step(1)
-    assert (env.hp, env.noise, env.event) == (73, 15.4, "spike")
+    assert (env.hp, env.noise, env.event) == (73, 16.0, "spike")
     assert env.grid[9, 6] == Tile.SPIKE and env.grid[12, 3] == Tile.ROCK
     env.position = (3, 13)
     env.step(1)
@@ -129,7 +129,15 @@ def test_hazards_and_portal_trigger_order(env):
     assert {(3, 14), (16, 2)} <= env.visited
     env.position = (3, 13)
     assert not env.mask()[1]
-    assert (env.hp, env.noise, env.moves, env.event) == (72, 15.6, 3, "portal")
+    assert (env.hp, env.noise, env.moves, env.event) == (72, 16.5, 3, "portal")
+
+
+def test_entering_cerberus_wakes_it_and_pays_zero(env):
+    env.position = (9, 9)
+    env.value = 60
+    _, reward, terminated, truncated, info = env.step(3)
+    assert env.noise == 100
+    assert (reward, terminated, truncated, info["death_reason"]) == (0, True, False, "cerberus")
 
 
 def test_timeout_is_truncated_and_pays_zero(env):

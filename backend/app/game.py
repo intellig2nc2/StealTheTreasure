@@ -272,6 +272,8 @@ class CerberusEnv(gym.Env):
                     self.position = self.cave.portals[(x, y)]
                     self.visited.add(self.position)
                     self.event = "portal"
+                elif tile == Tile.CERBERUS:
+                    self.noise = 100
                 elif tile == Tile.POTION:
                     self.hp = min(100, self.hp + 25)
                     self.event = "potion"
