@@ -123,11 +123,15 @@ class Training:
         state = pack(observation)
         trace = {"episode": number, "epsilon": epsilon, "layout": env.layout(), "frames": [env.frame()]}
         while self.proceed():
+            previous_value = env.value
             action = agent.act(state, observation["valid_actions"], epsilon)
             observation, reward, terminated, truncated, _ = env.step(action)
             next_state = pack(observation)
             if train:
-                agent.buffer.append((state, action, reward, next_state, observation["valid_actions"], terminated))
+                learning_reward = env.value - previous_value
+                if (terminated or truncated) and env.outcome != "escaped":
+                    learning_reward -= env.value
+                agent.buffer.append((state, action, learning_reward, next_state, observation["valid_actions"], terminated))
                 agent.learn()
             state = next_state
             trace["frames"].append(env.frame())

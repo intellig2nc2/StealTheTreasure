@@ -77,11 +77,13 @@ async function episode(agent: Agent | QLearning, env: CaveGame, number: number, 
       state = { ...state, mask: allowed }
     }
     const action = agent.choose(state, epsilon)
+    const previousValue = env.value
     reward = env.advance(action)
     const next = env.observe()
     frames.push(env.frame())
     if (train) {
-      agent.remember({ from: state, action, reward, to: next, terminated: env.outcome !== 'running' && env.outcome !== 'timeout' })
+      const learningReward = env.value - previousValue - (env.outcome !== 'running' && env.outcome !== 'escaped' ? env.value : 0)
+      agent.remember({ from: state, action, reward: learningReward, to: next, terminated: env.outcome !== 'running' && env.outcome !== 'timeout' })
       live = { episode: number, epsilon, layout: env.layout, frames }
     }
     state = next

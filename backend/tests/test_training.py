@@ -99,3 +99,31 @@ def test_default_training_starts_with_the_full_cave(tmp_path):
     assert snapshot["status"] == "completed"
     assert [row["stage"] for row in snapshot["history"]] == [4, 4]
     assert job.replays["early"]["layout"]["stage"] == 4
+
+
+def test_collection_reward_is_reversed_on_failure(tmp_path):
+    class ScriptedAgent:
+        def __init__(self):
+            self.actions = iter((3, 3, 4, 0))
+            self.buffer = []
+
+        def act(self, state, mask, epsilon):
+            return next(self.actions)
+
+        def learn(self):
+            pass
+
+    env = CerberusEnv()
+    original_reset = env.reset
+
+    def reset():
+        observation, info = original_reset()
+        env.grid[16, 4] = 8
+        return observation, info
+
+    env.reset = reset
+    job = Training(tmp_path / "model.pt")
+    agent = ScriptedAgent()
+    score, _ = job.episode(agent, env, 1, 1, train=True)
+    assert score == 0 and env.outcome == "cerberus"
+    assert [item[2] for item in agent.buffer] == [0, 0, 10, -10]
