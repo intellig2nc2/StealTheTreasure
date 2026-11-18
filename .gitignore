@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+backend/models/
+frontend/node_modules/
+frontend/dist/
+test-results/
+.taste-skill/
