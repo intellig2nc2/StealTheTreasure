@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from .dqn import DQN, pack
 from .game import CerberusEnv
 
-OUTCOMES = ("escaped", "cerberus", "crushed", "hp_depleted", "timeout")
+OUTCOMES = ("escaped", "cerberus", "crushed", "hp_depleted", "timeout", "dead_end")
 CHECKPOINT = Path(__file__).resolve().parents[1] / "models" / "latest.pt"
 
 

@@ -17,7 +17,12 @@ WEIGHT_INPUT_SCALE = 12
 
 def pack(state):
     x, y = state["position"]
-    return state["map"], (x / 19, y / 19, float(state["hp"]) / 100,
+    blocked = state["visited"].astype(bool)
+    blocked[y, x] = False
+    if state["gem_value"] > 0:
+        blocked[state["map"] == Tile.START] = False
+    grid = np.where(blocked, Tile.WALL, state["map"]).astype(np.uint8)
+    return grid, (x / 19, y / 19, float(state["hp"]) / 100,
                           float(state["noise"]) / 100, float(state["weight"]) / WEIGHT_INPUT_SCALE,
                           float(state["gem_value"]) / 200)
 

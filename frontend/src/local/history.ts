@@ -1,6 +1,6 @@
 import type { Algorithm, Outcome } from '../types'
 
-export type RunRecord = { id: string; startedAt: number; target: number; seed: number; completed: number; algorithm?: Algorithm; portals?: boolean }
+export type RunRecord = { id: string; startedAt: number; target: number; seed: number; completed: number; algorithm?: Algorithm; portals?: boolean; customMap?: boolean }
 export type EpisodeRecord = {
   runId: string; episode: number; stage: number; outcome: Outcome; reward: number; value: number
   actions: number; hp: number; noise: number; weight: number

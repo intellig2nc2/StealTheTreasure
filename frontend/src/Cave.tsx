@@ -150,6 +150,21 @@ export default function Cave({ layout, frames }: { layout?: Layout; frames: Fram
       if (cell > 1) drawTile(ctx, cell, x * size, y * size)
     }))
 
+    if (layout && frame) {
+      const visited = new Set<number>()
+      for (const { event, position: [x, y] } of frames) {
+        visited.add(y * 20 + x)
+        if (event === 'portal') {
+          const entry = layout.portals.find(([, [dx, dy]]) => dx === x && dy === y)?.[0]
+          if (entry) visited.add(entry[1] * 20 + entry[0])
+        }
+      }
+      if (frame.value > 0) visited.delete(layout.start[1] * 20 + layout.start[0])
+      visited.delete(frame.position[1] * 20 + frame.position[0])
+      ctx.fillStyle = '#10110fa8'
+      for (const cell of visited) ctx.fillRect((cell % 20) * size, Math.floor(cell / 20) * size, size, size)
+    }
+
     const route = frames.slice(-90)
     ctx.lineWidth = 2
     for (let i = 1; i < route.length; i++) {

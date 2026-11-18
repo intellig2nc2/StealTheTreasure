@@ -7,9 +7,11 @@ import '@fontsource-variable/space-grotesk'
 import './style.css'
 import { browserTraining, connect, request } from './transport'
 import type { Connection } from './transport'
+import { readCustomGrid, saveCustomGrid } from './customMap'
 
 const Statistics = lazy(() => import('./Statistics'))
 const History = lazy(() => import('./History'))
+const MapEditor = lazy(() => import('./MapEditor'))
 const speeds = [1, 2, 5, 10, 50, 'MAX'] as const
 type Speed = typeof speeds[number]
 type Mode = 'manual' | 'training' | 'replay'
@@ -20,7 +22,7 @@ const statusLabels: Record<Status, string> = {
 const controls = [
   ['↑', '위로 이동'], ['↓', '아래로 이동'], ['←', '왼쪽으로 이동'], ['→', '오른쪽으로 이동'], ['◆', '보석 수집'],
 ]
-const gemInfo = ['가치 10 · 1kg · 소음 +2', '가치 30 · 3kg · 소음 +5', '가치 60 · 5kg · 소음 +10', '가치 120 · 8kg · 소음 +18']
+const gemInfo = ['가치 10 · 1kg · 소음 +2', '가치 30 · 3kg · 소음 +2', '가치 60 · 5kg · 소음 +2', '가치 120 · 8kg · 소음 +2']
 const keys: Record<string, number> = { ArrowUp: 0, w: 0, ArrowDown: 1, s: 1, ArrowLeft: 2, a: 2, ArrowRight: 3, d: 3, ' ': 4, e: 4 }
 const initial: Watch = {
   run_id: '', status: 'idle', episode: 0, total: 0, history: [], live: null,
@@ -71,7 +73,7 @@ function Meter({ label, value, limit, suffix, tone }: { label: string; value?: n
 }
 
 function App() {
-  const [tab, setTab] = useState<'cave' | 'stats' | 'history'>('cave')
+  const [tab, setTab] = useState<'cave' | 'stats' | 'history' | 'editor'>('cave')
   const [mode, setMode] = useState<Mode>('manual')
   const [speed, setSpeed] = useState<Speed>(5)
   const [watch, setWatch] = useState(initial)
@@ -79,6 +81,9 @@ function App() {
   const [manualLayout, setManualLayout] = useState<Layout>()
   const [manualFrames, setManualFrames] = useState<Frame[]>([])
   const [manualSeed, setManualSeed] = useState('')
+  const [savedGrid, setSavedGrid] = useState(() => browserTraining ? readCustomGrid() : undefined)
+  const [manualCustomMap, setManualCustomMap] = useState(false)
+  const [trainingCustomMap, setTrainingCustomMap] = useState(false)
   const [manualNoPortals, setManualNoPortals] = useState(false)
   const [manualBusy, setManualBusy] = useState(false)
   const [latest, setLatest] = useState<Trace>()
@@ -177,15 +182,15 @@ function App() {
 
   function restart() {
     if (manual.socket.current?.readyState !== WebSocket.OPEN) return
-    if (manualSeed !== '' && (!/^\d+$/.test(manualSeed) || Number(manualSeed) > 4294967295)) {
+    if (!manualCustomMap && manualSeed !== '' && (!/^\d+$/.test(manualSeed) || Number(manualSeed) > 4294967295)) {
       setError('지도 시드는 0~4294967295의 정수여야 합니다.')
       return
     }
     setError('')
     setManualBusy(true)
     manual.socket.current.send({
-      seed: manualSeed === '' ? null : Number(manualSeed),
-      ...(browserTraining ? { portals: !manualNoPortals } : {}),
+      seed: manualCustomMap || manualSeed === '' ? null : Number(manualSeed),
+      ...(browserTraining ? { portals: !manualNoPortals, custom_grid: manualCustomMap ? savedGrid : undefined } : {}),
     })
   }
 
@@ -196,9 +201,9 @@ function App() {
     try {
       await request('train', {
         episodes: Number(preset === 'custom' ? custom : preset), seed: Number(seed), epsilon_decay: Number(decay),
-        curriculum, random_maps: randomMaps, gpu: gpu && watch.cuda, load_checkpoint: resumeModel && modelAvailable,
-        ...(browserTraining ? { algorithm, portals: !trainingNoPortals } : {}),
-        evaluation_seed: Number(evaluationSeed), evaluation_episodes: Number(evaluationEpisodes),
+        curriculum: !trainingCustomMap && curriculum, random_maps: !trainingCustomMap && randomMaps, gpu: gpu && watch.cuda, load_checkpoint: resumeModel && modelAvailable,
+        ...(browserTraining ? { algorithm, portals: !trainingNoPortals, custom_grid: trainingCustomMap ? savedGrid : undefined } : {}),
+        evaluation_seed: trainingCustomMap ? 2147483648 : Number(evaluationSeed), evaluation_episodes: Number(evaluationEpisodes),
       })
       setTrace(undefined)
       setIndex(0)
@@ -249,6 +254,7 @@ function App() {
           <button aria-current={tab === 'cave' ? 'page' : undefined} onClick={() => setTab('cave')}>동굴 탐험</button>
           <button aria-current={tab === 'stats' ? 'page' : undefined} onClick={() => setTab('stats')}>학습 통계</button>
           {browserTraining && <button aria-current={tab === 'history' ? 'page' : undefined} onClick={() => setTab('history')}>학습 기록</button>}
+          {browserTraining && <button aria-current={tab === 'editor' ? 'page' : undefined} onClick={() => setTab('editor')}>지도 편집</button>}
         </nav>
         <span className="connection"><i className={watcher.connected ? 'online' : ''} />{browserTraining ? (watcher.connected ? '내 브라우저에서 실행' : '브라우저 준비 중') : (watcher.connected ? '서버 연결됨' : '서버 연결 대기')}</span>
       </div>
@@ -316,12 +322,14 @@ function App() {
                       {icon}{i === 4 && <span>수집</span>}</button>)}
                   </div>
                   <div className="manual-reset">
-                    <label><span>지도 시드</span><input inputMode="numeric" value={manualSeed} onChange={event => setManualSeed(event.target.value)} placeholder="기본 지도" /></label>
+                    <label><span>지도 시드</span><input inputMode="numeric" disabled={manualCustomMap} value={manualSeed} onChange={event => setManualSeed(event.target.value)} placeholder="기본 지도" /></label>
                     <button disabled={!manual.connected || manualBusy} onClick={restart}>다시 시작</button>
                   </div>
+                  {savedGrid && <label className="map-toggle"><input type="checkbox" checked={manualCustomMap}
+                    onChange={event => setManualCustomMap(event.target.checked)} />내 지도 사용 (다시 시작 시 적용)</label>}
                   {browserTraining && <label className="map-toggle"><input type="checkbox" checked={manualNoPortals}
                     onChange={event => setManualNoPortals(event.target.checked)} />지름길 없는 지도 (다시 시작 시 적용)</label>}
-                  <p className="hint">방향키 또는 WASD로 이동 · E 또는 Space로 수집</p>
+                  <p className="hint">방향키 또는 WASD로 이동 · E 또는 Space로 수집. 밟은 칸은 다시 갈 수 없고, 입구는 보석을 얻은 뒤 다시 들어갈 수 있습니다.</p>
                 </> : <>
                   <p className="observer">{trace ? `에피소드 ${trace.episode.toLocaleString('ko-KR')} · ε ${trace.epsilon.toFixed(2)}` : '학습을 시작하면 AI를 관찰할 수 있습니다.'}</p>
                   <div className="speed-row" aria-label="화면 재생 배속">
@@ -356,16 +364,18 @@ function App() {
                         <option value="dqn">Double DQN</option><option value="q_learning">Q-learning</option>
                       </select>
                     </label>
+                    {savedGrid && <label className="map-toggle"><input type="checkbox" checked={trainingCustomMap}
+                      onChange={event => setTrainingCustomMap(event.target.checked)} />학습에 내 지도 사용</label>}
                     <label className="map-toggle"><input type="checkbox" checked={trainingNoPortals}
                       onChange={event => setTrainingNoPortals(event.target.checked)} />학습에 지름길 없는 지도 사용</label>
                   </div>}
                   <details><summary>시드 및 고급 옵션</summary><div className="advanced">
                     <label>학습 시드<input type="number" min="0" max="2147483647" required value={seed} onChange={event => setSeed(event.target.value)} /></label>
                     <label>ε 감소 기간<input type="number" min="1" max="50000" required value={decay} onChange={event => setDecay(event.target.value)} /></label>
-                    <label>평가 시드<input type="number" min="2147483648" max="4294967195" required value={evaluationSeed} onChange={event => setEvaluationSeed(event.target.value)} /></label>
+                    <label>평가 시드<input type="number" min="2147483648" max="4294967195" required disabled={trainingCustomMap} value={evaluationSeed} onChange={event => setEvaluationSeed(event.target.value)} /></label>
                     <label>평가 에피소드<input type="number" min="1" max="100" required value={evaluationEpisodes} onChange={event => setEvaluationEpisodes(event.target.value)} /></label>
-                    <label className="check"><input type="checkbox" checked={curriculum} onChange={event => setCurriculum(event.target.checked)} />쉬운 지도부터 단계별 학습</label>
-                    <label className="check"><input type="checkbox" checked={randomMaps} onChange={event => setRandomMaps(event.target.checked)} />시드 기반 랜덤 지도</label>
+                    <label className="check"><input type="checkbox" disabled={trainingCustomMap} checked={!trainingCustomMap && curriculum} onChange={event => setCurriculum(event.target.checked)} />쉬운 지도부터 단계별 학습</label>
+                    <label className="check"><input type="checkbox" disabled={trainingCustomMap} checked={!trainingCustomMap && randomMaps} onChange={event => setRandomMaps(event.target.checked)} />시드 기반 랜덤 지도</label>
                     <label className="check"><input type="checkbox" checked={gpu && watch.cuda} disabled={!watch.cuda} onChange={event => setGpu(event.target.checked)} />CUDA 사용</label>
                     <label className="check"><input type="checkbox" checked={resumeModel && modelAvailable} disabled={!modelAvailable} onChange={event => setResumeModel(event.target.checked)} />저장 모델 불러오기</label>
                   </div></details>
@@ -389,7 +399,9 @@ function App() {
           <h2>대표 에피소드 다시 보기</h2>
           <div>{watch.replays.map(name => <button key={name} disabled={busy} aria-pressed={mode === 'replay' && selected === name} onClick={() => replay(name)}>{replays[name]}</button>)}</div>
         </section>}
-      </> : tab === 'history' ? <Suspense fallback={<p>학습 기록을 여는 중</p>}>
+      </> : tab === 'editor' ? <Suspense fallback={<p>지도 편집기를 여는 중</p>}>
+        <MapEditor saved={savedGrid} onSave={grid => { saveCustomGrid(grid); setSavedGrid(grid) }} />
+      </Suspense> : tab === 'history' ? <Suspense fallback={<p>학습 기록을 여는 중</p>}>
         <History runId={watch.run_id} completed={watch.episode} warning={watch.error} />
       </Suspense> : <Suspense fallback={<p>학습 통계를 여는 중</p>}><Statistics history={history} watch={watch} replay={replay} busy={busy} /></Suspense>}
     </main>

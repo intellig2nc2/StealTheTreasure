@@ -10,7 +10,7 @@ const metrics = [
   ['count', '전체 에피소드'], ['escape_rate', '탈출 성공률', '%'], ['avg_value', '평균 획득 보석 가치'],
   ['best_value', '최고 획득 보석 가치'], ['avg_moves', '평균 이동 횟수'], ['avg_hp', '평균 최종 체력'],
   ['avg_noise', '평균 최종 소음'], ['avg_weight', '평균 최종 무게', 'kg'],
-  ['cerberus', '케르베로스 각성'], ['crushed', '압사'], ['hp_depleted', '체력 소진'], ['timeout', '시간 제한'],
+  ['cerberus', '케르베로스 각성'], ['crushed', '압사'], ['hp_depleted', '체력 소진'], ['timeout', '시간 제한'], ['dead_end', '막다른 길'],
 ] as const
 
 const chart = [
@@ -52,7 +52,7 @@ export default function Statistics({ history, watch, replay, busy }: {
       <div className="results">
         <Metrics summary={current} title="학습 결과" note="ε-greedy" />
         {watch.evaluation && <Metrics summary={watch.evaluation} title="최종 평가 결과"
-          note={`STAGE 4 · ε = 0 · 시작 시드 ${watch.config?.evaluation_seed}`} />}
+          note={`STAGE 4 · ε = 0 · ${watch.config?.custom_map ? '내 지도' : '시작 시드 ' + watch.config?.evaluation_seed}`} />}
       </div>
       {watch.replays.length > 0 && <section className="panel replay-list">
         <h2>대표 경로 비교</h2><div>{watch.replays.map(name =>

@@ -52,7 +52,7 @@ export default function History({ runId, completed, warning }: { runId: string; 
             <option value="">가장 최근 실행</option>
             {runs.map(item => <option key={item.id} value={item.id}>{date.format(item.startedAt)} · 시드 {item.seed}</option>)}
           </select></label>
-          <p>{algorithmLabels[run.algorithm ?? 'dqn']} · {run.portals === false ? '지름길 없음' : '지름길 사용'}</p>
+          <p>{run.customMap && '내 지도 · '}{algorithmLabels[run.algorithm ?? 'dqn']} · {run.portals === false ? '지름길 없음' : '지름길 사용'}</p>
           <p>{run.completed.toLocaleString('ko-KR')} / {run.target.toLocaleString('ko-KR')}회 완료</p>
         </div>
         <div className="history-scroll" tabIndex={0} role="region" aria-label="에피소드별 학습 기록">

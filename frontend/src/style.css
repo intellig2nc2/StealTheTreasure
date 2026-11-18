@@ -134,7 +134,7 @@ footer a { display: flex; align-items: center; min-height: 44px; }
   .top-inner { grid-template-columns: 1fr auto; min-height: auto; gap: 0 10px; }
   .brand { min-height: 51px; }
   .connection { grid-column: 2; grid-row: 1; }
-  nav { grid-column: 1/-1; gap: 23px; }
+  nav { grid-column: 1/-1; gap: clamp(8px, 3.4vw, 23px); }
   main { padding-top: 23px; }
   .intro { align-items: start; gap: 8px; margin-bottom: 17px; }
   .intro-status { margin-top: 4px; }
@@ -166,3 +166,16 @@ footer a { display: flex; align-items: center; min-height: 44px; }
 
 .training-variant { margin-top: 10px; }
 .map-toggle { display: flex; align-items: center; gap: 7px; min-height: 44px; color: var(--muted); font-size: .78rem; }
+
+.editor-workspace { align-items: start; }
+.editor-scroll { overflow: auto; padding: 12px; }
+.editor-map { position: relative; min-width: 460px; max-width: 550px; margin-inline: auto; border: 1px solid #786142; }
+.editor-grid { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(20, minmax(0, 1fr)); grid-template-rows: repeat(20, minmax(0, 1fr)); }
+.editor-grid button { min-height: 0; min-width: 0; padding: 0; border: 0; background: transparent; }
+.editor-grid button:not(:disabled):hover, .editor-grid button:focus-visible { background: #edbd784c; outline: 2px solid var(--gold); outline-offset: -2px; }
+.editor-palette { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.editor-palette button { display: flex; gap: 6px; align-items: center; justify-content: start; text-align: left; font-size: .82rem; padding-inline: 8px; }
+.editor-palette canvas, .editor-swatch { width: 20px; height: 20px; flex: 0 0 20px; image-rendering: pixelated; }
+.editor-swatch { border: 1px solid #8f7956; }
+.editor-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.editor-error { color: #ffceae; }

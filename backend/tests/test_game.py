@@ -19,24 +19,33 @@ def test_gym_contract():
 
 
 def test_mask_collect_and_exact_escape_reward(env):
-    assert env.mask().tolist() == [1, 1, 1, 1, 0]
-    env.step(2)
+    env.grid[17, 1] = Tile.WALL
+    assert env.mask().tolist() == [1, 1, 0, 1, 0]
+    env.step(3)
     assert not env.mask()[2]
     with pytest.raises(ValueError):
         env.step(2)
     assert env.steps == 1
     env.step(3)
-    assert env.outcome == "running"
-    env.step(3)
-    env.step(3)
     assert env.mask()[4] and env.value == 0
+    assert not env.mask()[2]
     obs, reward, terminated, truncated, _ = env.step(4)
     assert reward == 0 and not terminated and not truncated
     assert not obs["valid_actions"][4] and obs["collected_gems"][17, 4]
-    assert obs["map"][17, 4] == Tile.FLOOR
-    env.step(2)
-    _, reward, terminated, truncated, info = env.step(2)
+    assert obs["visited"][17, 3] and obs["map"][17, 4] == Tile.FLOOR
+    for action in (0, 2, 2):
+        assert env.step(action)[1] == 0
+    _, reward, terminated, truncated, info = env.step(1)
     assert (reward, terminated, truncated, info["outcome"]) == (10, True, False, "escaped")
+
+
+def test_collect_is_available_in_a_dead_end_until_gem_is_used(env):
+    env.grid[16, 4] = env.grid[18, 4] = env.grid[17, 5] = Tile.WALL
+    env.step(3)
+    env.step(3)
+    assert env.mask().tolist() == [0, 0, 0, 0, 1]
+    _, reward, terminated, truncated, info = env.step(4)
+    assert (reward, terminated, truncated, info["outcome"]) == (0, True, False, "dead_end")
 
 
 def test_overweight_stays_unmasked_and_dies_with_no_reward(env):
@@ -50,17 +59,24 @@ def test_overweight_stays_unmasked_and_dies_with_no_reward(env):
     assert (reward, terminated, info["death_reason"]) == (0, True, "crushed")
 
 
+@pytest.mark.parametrize("position", [(4, 17), (6, 3), (10, 3), (17, 4)])
+def test_all_gems_add_two_noise(env, position):
+    env.position = position
+    env.step(4)
+    assert env.noise == 2
+
+
 def test_exact_noise_threshold_and_heavy_movement(env):
-    env.noise, env.weight, env.value = 97, 7, 30
+    env.noise, env.weight, env.value = 99.6, 30, 30
     assert env.step(3)[1] == 0
-    assert env.noise == 99 and env.outcome == "running"
+    assert env.noise == 99.8 and env.outcome == "running"
     _, reward, terminated, _, info = env.step(2)
-    assert env.noise == 101
+    assert env.noise == 100
     assert (reward, terminated, info["death_reason"]) == (0, True, "cerberus")
 
 
 def test_noise_crossing_does_not_trigger_silence_first(env):
-    env.position, env.noise = (16, 6), 99
+    env.position, env.noise = (16, 6), 99.8
     env.step(0)
     assert env.noise == 100 and env.outcome == "cerberus"
     assert env.grid[5, 16] == Tile.SILENCE
@@ -79,8 +95,8 @@ def test_potion_is_capped_and_consumed_once(env):
     obs, *_ = env.step(0)
     assert env.hp == 100 and obs["used_items"][7, 5]
     env.step(1)
-    env.step(0)
-    assert env.hp == 98 and env.grid[7, 5] == Tile.FLOOR
+    assert not env.mask()[0]
+    assert env.hp == 99 and env.grid[7, 5] == Tile.FLOOR
 
 
 def test_silence_is_clamped_and_consumed_once(env):
@@ -88,22 +104,25 @@ def test_silence_is_clamped_and_consumed_once(env):
     obs, *_ = env.step(0)
     assert env.hp == 94 and env.noise == 0 and obs["used_items"][5, 16]
     env.step(1)
-    env.step(0)
-    assert env.hp == 92 and env.noise == 2
+    assert not env.mask()[0]
+    assert env.hp == 93 and env.noise == 0.2
 
 
 def test_hazards_and_portal_trigger_order(env):
     env.position = (3, 11)
     env.step(1)
-    assert (env.hp, env.noise, env.event) == (89, 16, "rock")
+    assert (env.hp, env.noise, env.event) == (89, 15.2, "rock")
     env.position = (6, 8)
     env.step(1)
-    assert (env.hp, env.noise, env.event) == (73, 17, "spike")
+    assert (env.hp, env.noise, env.event) == (73, 15.4, "spike")
     assert env.grid[9, 6] == Tile.SPIKE and env.grid[12, 3] == Tile.ROCK
     env.position = (3, 13)
     env.step(1)
     assert env.position == (16, 2)
-    assert (env.hp, env.noise, env.moves, env.event) == (72, 18, 3, "portal")
+    assert {(3, 14), (16, 2)} <= env.visited
+    env.position = (3, 13)
+    assert not env.mask()[1]
+    assert (env.hp, env.noise, env.moves, env.event) == (72, 15.6, 3, "portal")
 
 
 def test_timeout_is_truncated_and_pays_zero(env):
@@ -125,4 +144,5 @@ def test_seeded_maps_connected_and_have_safe_escape(stage):
                       if distance == 2 and cave.grid[py, px] == Tile.EMERALD)
         action = {(0, -2): 0, (0, 2): 1, (-2, 0): 2, (2, 0): 3}[dx, dy]
         reverse = action ^ 1
-        assert [game.step(move)[1] for move in (action, action, 4, reverse, reverse)] == [0, 0, 0, 0, 10]
+        side = {3: 0, 0: 2, 2: 1, 1: 3}[action]
+        assert [game.step(move)[1] for move in (action, action, 4, side, reverse, reverse, side ^ 1)] == [0, 0, 0, 0, 0, 0, 10]

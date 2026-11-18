@@ -11,7 +11,7 @@ def test_browser_play_uses_game_rules_and_isolates_connections():
             assert first["layout"]["start"] == other.receive_json()["frame"]["position"]
             game.send_json({"action": 4})
             assert "error" in game.receive_json()
-            for action in (3, 3, 4, 2, 2):
+            for action in (3, 3, 4, 0, 2, 2, 1):
                 game.send_json({"action": action})
                 result = game.receive_json()
             assert result["reward"] == 10 and result["frame"]["outcome"] == "escaped"

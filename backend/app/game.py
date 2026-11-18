@@ -8,6 +8,8 @@ from gymnasium import spaces
 
 SIZE = 20
 WEIGHT_LIMIT = 30
+MOVE_NOISE = 0.2
+COLLECT_NOISE = 2
 ACTIONS = ("UP", "DOWN", "LEFT", "RIGHT", "COLLECT")
 DIRECTIONS = ((0, -1), (0, 1), (-1, 0), (1, 0))
 
@@ -28,12 +30,12 @@ class Tile(IntEnum):
     LEGEND = 12
 
 
-# Value, mass in kg, collection noise.
+# Value and mass in kg.
 GEMS = {
-    Tile.EMERALD: (10, 1, 2),
-    Tile.SAPPHIRE: (30, 3, 5),
-    Tile.RUBY: (60, 5, 10),
-    Tile.LEGEND: (120, 8, 18),
+    Tile.EMERALD: (10, 1),
+    Tile.SAPPHIRE: (30, 3),
+    Tile.RUBY: (60, 5),
+    Tile.LEGEND: (120, 8),
 }
 ITEMS = (Tile.POTION, Tile.SILENCE)
 
@@ -115,7 +117,8 @@ def make_cave(stage, seed=None, max_steps=200):
             (8, 15): Tile.SPIKE, (17, 13): Tile.SPIKE, (5, 7): Tile.POTION,
             (12, 13): Tile.POTION, (16, 5): Tile.SILENCE, (8, 10): Tile.SILENCE,
         }
-    start = (2, 17)
+    escape_loop = ((2, 17), (3, 17), (4, 17), (4, 16), (3, 16), (2, 16))
+    start = escape_loop[0]
     for (x, y), tile in {**tiles, start: Tile.START, **dict.fromkeys(portals, Tile.PORTAL)}.items():
         grid[y, x] = tile
 
@@ -125,8 +128,8 @@ def make_cave(stage, seed=None, max_steps=200):
         for original, destination in zip((p for p in tiles if p != (4, 17)), movable):
             x, y = destination
             grid[y, x] = tiles[original]
-        # Keep the shortest guaranteed escape corridor intact while varying wider routes.
-        protected = {start, (3, 17), (4, 17), *tiles, *portals}
+        # Preserve both sides of a loop so the first gem has a route back.
+        protected = {*escape_loop, *tiles, *portals}
 
         def valid(candidate):
             distances = reachable(candidate, start)
@@ -151,14 +154,14 @@ def make_cave(stage, seed=None, max_steps=200):
                 return x, y
 
             start = rotate(start)
+            escape_loop = tuple(map(rotate, escape_loop))
             portals = {rotate(a): rotate(b) for a, b in portals.items()}
 
     cave = Cave(grid, start, portals)
     distances = reachable(cave, start)
     assert all((x, y) in distances for y, x in zip(*np.where(grid != Tile.WALL)))
-    safe = reachable(cave, start, safe=True)
-    assert any(grid[y, x] in GEMS and 2 * distance + 1 <= max_steps
-               and 2 * distance + 18 < 100 for (x, y), distance in safe.items())
+    assert max_steps >= len(escape_loop) + 1
+    assert all(grid[y, x] in (Tile.FLOOR, Tile.START, *GEMS) for x, y in escape_loop)
     return cave
 
 
@@ -171,13 +174,14 @@ class CerberusEnv(gym.Env):
         self.observation_space = spaces.Dict({
             "position": spaces.MultiDiscrete([SIZE, SIZE]),
             "hp": spaces.Box(0, 100, (), dtype=np.int16),
-            "noise": spaces.Box(0, 125, (), dtype=np.int16),
-            "weight": spaces.Box(0, WEIGHT_LIMIT + max(mass for _, mass, _ in GEMS.values()), (), dtype=np.int16),
+            "noise": spaces.Box(0, 125, (), dtype=np.float32),
+            "weight": spaces.Box(0, WEIGHT_LIMIT + max(mass for _, mass in GEMS.values()), (), dtype=np.int16),
             "gem_value": spaces.Box(0, 420, (), dtype=np.int16),
             "map": spaces.Box(0, len(Tile) - 1, (SIZE, SIZE), dtype=np.uint8),
             "collected_gems": spaces.MultiBinary((SIZE, SIZE)),
             "used_items": spaces.MultiBinary((SIZE, SIZE)),
             "valid_actions": spaces.MultiBinary(len(ACTIONS)),
+            "visited": spaces.MultiBinary((SIZE, SIZE)),
         })
 
     def reset(self, *, seed=None, options=None):
@@ -186,22 +190,36 @@ class CerberusEnv(gym.Env):
         self.cave = make_cave(self.stage, map_seed, self.max_steps)
         self.grid = self.cave.grid.copy()
         self.position = self.cave.start
+        self.visited = {self.position}
         self.hp, self.noise, self.weight, self.value = 100, 0, 0, 0
         self.steps = self.moves = 0
         self.outcome = "running"
         self.event = "enter"
         return self.observe(), self.info()
 
+    def exits(self):
+        def allowed(point):
+            return point not in self.visited or (point == self.cave.start and self.value > 0)
+
+        for entry in neighbors(self.grid, self.position):
+            if entry is not None and allowed(entry) and allowed(self.cave.portals.get(entry, entry)):
+                yield entry
+            else:
+                yield None
+
     def mask(self):
         x, y = self.position
-        return np.array([p is not None for p in neighbors(self.grid, self.position)]
-                        + [self.grid[y, x] in GEMS], dtype=np.int8)
+        return np.array([p is not None for p in self.exits()] + [self.grid[y, x] in GEMS], dtype=np.int8)
 
     def observe(self):
+        visited = np.zeros((SIZE, SIZE), dtype=np.int8)
+        for x, y in self.visited:
+            visited[y, x] = 1
         return {
+            "visited": visited,
             "position": np.array(self.position, dtype=np.int64),
             "hp": np.array(self.hp, dtype=np.int16),
-            "noise": np.array(self.noise, dtype=np.int16),
+            "noise": np.array(self.noise, dtype=np.float32),
             "weight": np.array(self.weight, dtype=np.int16),
             "gem_value": np.array(self.value, dtype=np.int16),
             "map": self.grid.copy(),
@@ -230,34 +248,36 @@ class CerberusEnv(gym.Env):
         survival = self.stage >= 3
         if action == 4:
             x, y = self.position
-            value, mass, noise = GEMS[self.grid[y, x]]
+            value, mass = GEMS[self.grid[y, x]]
             self.value += value
             self.weight += mass
-            self.noise += noise if survival else 0
+            self.noise += COLLECT_NOISE if survival else 0
             self.grid[y, x] = Tile.FLOOR
             self.event = "collect"
             if self.stage >= 2 and self.weight > WEIGHT_LIMIT:
                 self.outcome = "crushed"
         else:
             self.moves += 1
-            self.position = tuple(neighbors(self.grid, self.position))[action]
+            self.position = tuple(self.exits())[action]
+            self.visited.add(self.position)
             self.event = "move"
             if survival:
                 self.hp -= 1
-                self.noise += 1 + (self.weight >= 7)
+                self.noise = round(self.noise + MOVE_NOISE, 1)
                 self.check_survival()
             if self.outcome == "running":
                 x, y = self.position
                 tile = Tile(self.grid[y, x])
                 if tile == Tile.PORTAL:
                     self.position = self.cave.portals[(x, y)]
+                    self.visited.add(self.position)
                     self.event = "portal"
                 elif tile == Tile.POTION:
                     self.hp = min(100, self.hp + 25)
                     self.event = "potion"
                 elif tile == Tile.SILENCE:
                     self.hp -= 5
-                    self.noise = max(0, self.noise - 20)
+                    self.noise = max(0, round(self.noise - 20, 1))
                     self.event = "silence"
                 elif tile == Tile.SPIKE:
                     self.hp -= 15
@@ -275,6 +295,8 @@ class CerberusEnv(gym.Env):
             self.outcome = "escaped"
         if self.outcome == "running" and self.steps >= self.max_steps:
             self.outcome = "timeout"
+        if self.outcome == "running" and not self.mask().any():
+            self.outcome = "dead_end"
         terminated = self.outcome not in ("running", "timeout")
         return self.observe(), self.value if self.outcome == "escaped" else 0, terminated, self.outcome == "timeout", self.info()
 
