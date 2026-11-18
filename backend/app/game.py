@@ -8,7 +8,7 @@ from gymnasium import spaces
 
 SIZE = 20
 WEIGHT_LIMIT = 30
-MOVE_NOISE = 0.2
+MOVE_NOISE = 0.5
 COLLECT_NOISE = 2
 ACTIONS = ("UP", "DOWN", "LEFT", "RIGHT", "COLLECT")
 DIRECTIONS = ((0, -1), (0, 1), (-1, 0), (1, 0))

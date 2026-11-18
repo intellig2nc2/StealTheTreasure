@@ -238,7 +238,7 @@ export class CaveGame {
       this.event = 'move'
       if (survival) {
         this.hp -= 1
-        this.noise = (Math.round(this.noise * 10) + 2) / 10
+        this.noise = (Math.round(this.noise * 10) + 5) / 10
         this.checkSurvival()
       }
       if (this.outcome === 'running') {
