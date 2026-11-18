@@ -159,7 +159,7 @@ export default function Cave({ layout, frames }: { layout?: Layout; frames: Fram
           if (entry) visited.add(entry[1] * 20 + entry[0])
         }
       }
-      if (frame.value > 0) visited.delete(layout.start[1] * 20 + layout.start[0])
+      visited.delete(layout.start[1] * 20 + layout.start[0])
       visited.delete(frame.position[1] * 20 + frame.position[0])
       ctx.fillStyle = '#10110fa8'
       for (const cell of visited) ctx.fillRect((cell % 20) * size, Math.floor(cell / 20) * size, size, size)

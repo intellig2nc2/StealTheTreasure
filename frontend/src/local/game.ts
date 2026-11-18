@@ -181,7 +181,7 @@ export class CaveGame {
   }
 
   private exits() {
-    const allowed = (point: Point) => !this.visited.has(flat(point)) || (this.value > 0 && same(point, this.layout.start))
+    const allowed = (point: Point) => !this.visited.has(flat(point)) || same(point, this.layout.start)
     return neighbors(this.position, point => this.grid[flat(point)] === 1 || !allowed(point) ||
       !allowed(destination(point, this.layout.portals)))
   }
@@ -195,7 +195,7 @@ export class CaveGame {
     const exits = this.exits()
     const map = this.grid.slice()
     for (const cell of this.visited) {
-      if (cell !== flat(this.position) && !(this.value > 0 && cell === flat(this.layout.start))) map[cell] = 1
+      if (cell !== flat(this.position) && cell !== flat(this.layout.start)) map[cell] = 1
     }
     return {
       map, mask: this.mask(exits),
@@ -273,7 +273,7 @@ export class CaveGame {
       }
     }
     if (this.outcome === 'running' && survival) this.checkSurvival()
-    if (this.outcome === 'running' && this.value && same(this.position, this.layout.start)) this.outcome = 'escaped'
+    if (this.outcome === 'running' && this.step > 0 && same(this.position, this.layout.start)) this.outcome = 'escaped'
     if (this.outcome === 'running' && this.step >= 200) this.outcome = 'timeout'
     if (this.outcome === 'running' && !this.mask().some(Boolean)) this.outcome = 'dead_end'
     return this.outcome === 'escaped' ? this.value : 0

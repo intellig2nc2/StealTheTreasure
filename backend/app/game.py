@@ -199,7 +199,7 @@ class CerberusEnv(gym.Env):
 
     def exits(self):
         def allowed(point):
-            return point not in self.visited or (point == self.cave.start and self.value > 0)
+            return point not in self.visited or (point == self.cave.start)
 
         for entry in neighbors(self.grid, self.position):
             if entry is not None and allowed(entry) and allowed(self.cave.portals.get(entry, entry)):
@@ -291,7 +291,7 @@ class CerberusEnv(gym.Env):
 
         if self.outcome == "running" and survival:
             self.check_survival()
-        if self.outcome == "running" and self.position == self.cave.start and self.value:
+        if self.outcome == "running" and self.position == self.cave.start and self.steps > 0:
             self.outcome = "escaped"
         if self.outcome == "running" and self.steps >= self.max_steps:
             self.outcome = "timeout"

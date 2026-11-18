@@ -22,13 +22,13 @@ def test_mask_collect_and_exact_escape_reward(env):
     env.grid[17, 1] = Tile.WALL
     assert env.mask().tolist() == [1, 1, 0, 1, 0]
     env.step(3)
-    assert not env.mask()[2]
-    with pytest.raises(ValueError):
-        env.step(2)
-    assert env.steps == 1
+    assert env.mask()[2]
     env.step(3)
     assert env.mask()[4] and env.value == 0
     assert not env.mask()[2]
+    with pytest.raises(ValueError):
+        env.step(2)
+    assert env.steps == 2
     obs, reward, terminated, truncated, _ = env.step(4)
     assert reward == 0 and not terminated and not truncated
     assert not obs["valid_actions"][4] and obs["collected_gems"][17, 4]
@@ -46,6 +46,13 @@ def test_collect_is_available_in_a_dead_end_until_gem_is_used(env):
     assert env.mask().tolist() == [0, 0, 0, 0, 1]
     _, reward, terminated, truncated, info = env.step(4)
     assert (reward, terminated, truncated, info["outcome"]) == (0, True, False, "dead_end")
+
+
+def test_return_to_start_without_gems_escapes_for_zero(env):
+    env.step(3)
+    assert env.mask()[2]
+    _, reward, terminated, truncated, info = env.step(2)
+    assert (reward, terminated, truncated, info["outcome"]) == (0, True, False, "escaped")
 
 
 def test_overweight_stays_unmasked_and_dies_with_no_reward(env):

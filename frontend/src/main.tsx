@@ -329,7 +329,7 @@ function App() {
                     onChange={event => setManualCustomMap(event.target.checked)} />내 지도 사용 (다시 시작 시 적용)</label>}
                   {browserTraining && <label className="map-toggle"><input type="checkbox" checked={manualNoPortals}
                     onChange={event => setManualNoPortals(event.target.checked)} />지름길 없는 지도 (다시 시작 시 적용)</label>}
-                  <p className="hint">방향키 또는 WASD로 이동 · E 또는 Space로 수집. 밟은 칸은 다시 갈 수 없고, 입구는 보석을 얻은 뒤 다시 들어갈 수 있습니다.</p>
+                  <p className="hint">방향키 또는 WASD로 이동 · E 또는 Space로 수집. 밟은 칸은 다시 갈 수 없고, 입구로 돌아오면 탈출합니다.</p>
                 </> : <>
                   <p className="observer">{trace ? `에피소드 ${trace.episode.toLocaleString('ko-KR')} · ε ${trace.epsilon.toFixed(2)}` : '학습을 시작하면 AI를 관찰할 수 있습니다.'}</p>
                   <div className="speed-row" aria-label="화면 재생 배속">
