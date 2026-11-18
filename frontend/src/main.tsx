@@ -106,7 +106,7 @@ function App() {
   const [decay, setDecay] = useState('16000')
   const [evaluationSeed, setEvaluationSeed] = useState('2147483648')
   const [evaluationEpisodes, setEvaluationEpisodes] = useState('20')
-  const [curriculum, setCurriculum] = useState(true)
+  const [curriculum, setCurriculum] = useState(false)
   const [randomMaps, setRandomMaps] = useState(false)
   const [gpu, setGpu] = useState(false)
   const [resumeModel, setResumeModel] = useState(false)
@@ -357,7 +357,7 @@ function App() {
                     <label>ε 감소 기간<input type="number" min="1" max="50000" required value={decay} onChange={event => setDecay(event.target.value)} /></label>
                     <label>평가 시드<input type="number" min="2147483648" max="4294967195" required value={evaluationSeed} onChange={event => setEvaluationSeed(event.target.value)} /></label>
                     <label>평가 에피소드<input type="number" min="1" max="100" required value={evaluationEpisodes} onChange={event => setEvaluationEpisodes(event.target.value)} /></label>
-                    <label className="check"><input type="checkbox" checked={curriculum} onChange={event => setCurriculum(event.target.checked)} />단계별 학습</label>
+                    <label className="check"><input type="checkbox" checked={curriculum} onChange={event => setCurriculum(event.target.checked)} />쉬운 지도부터 단계별 학습</label>
                     <label className="check"><input type="checkbox" checked={randomMaps} onChange={event => setRandomMaps(event.target.checked)} />시드 기반 랜덤 지도</label>
                     <label className="check"><input type="checkbox" checked={gpu && watch.cuda} disabled={!watch.cuda} onChange={event => setGpu(event.target.checked)} />CUDA 사용</label>
                     <label className="check"><input type="checkbox" checked={resumeModel && watch.checkpoint} disabled={!watch.checkpoint} onChange={event => setResumeModel(event.target.checked)} />저장 모델 불러오기</label>

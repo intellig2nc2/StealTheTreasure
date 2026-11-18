@@ -73,7 +73,7 @@ def test_pause_resume_and_stop(tmp_path):
 
 def test_training_is_seeded_and_max_subscription_cannot_change_results(tmp_path):
     job = Training(tmp_path / "latest.pt")
-    config = TrainConfig(episodes=6, seed=14, evaluation_episodes=2, random_maps=True)
+    config = TrainConfig(episodes=6, seed=14, evaluation_episodes=2, random_maps=True, curriculum=True)
     results = []
     for maximum in (False, True):
         job.start(config)
@@ -84,8 +84,18 @@ def test_training_is_seeded_and_max_subscription_cannot_change_results(tmp_path)
             wait_for(lambda: job.snapshot()["status"] in ("completed", "error"))
         snapshot = job.snapshot()
         assert snapshot["status"] == "completed"
-        assert snapshot["episode"] == 6 and snapshot["history"][-1]["stage"] == 4
+        assert [row["stage"] for row in snapshot["history"]] == [1, 1, 2, 3, 3, 4]
         assert snapshot["evaluation"]["count"] == 2 and job.replays["evaluation"]["epsilon"] == 0
         assert set(snapshot["replays"]) == {"early", "middle", "late", "evaluation"}
         results.append((snapshot["history"], snapshot["evaluation"], job.replays))
     assert results[0] == results[1]
+
+
+def test_default_training_starts_with_the_full_cave(tmp_path):
+    job = Training(tmp_path / "latest.pt")
+    job.start(TrainConfig(episodes=2, evaluation_episodes=1))
+    wait_for(lambda: job.snapshot()["status"] in ("completed", "error"))
+    snapshot = job.snapshot()
+    assert snapshot["status"] == "completed"
+    assert [row["stage"] for row in snapshot["history"]] == [4, 4]
+    assert job.replays["early"]["layout"]["stage"] == 4

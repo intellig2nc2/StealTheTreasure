@@ -17,7 +17,7 @@ class TrainConfig(BaseModel):
     episodes: int = Field(20000, ge=1, le=50000)
     seed: int = Field(42, ge=0, le=2**31 - 1)
     epsilon_decay: int = Field(16000, ge=1, le=50000)
-    curriculum: bool = True
+    curriculum: bool = False
     random_maps: bool = False
     gpu: bool = False
     load_checkpoint: bool = False
