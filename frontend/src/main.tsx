@@ -9,6 +9,7 @@ import { browserTraining, connect, request } from './transport'
 import type { Connection } from './transport'
 
 const Statistics = lazy(() => import('./Statistics'))
+const History = lazy(() => import('./History'))
 const speeds = [1, 2, 5, 10, 50, 'MAX'] as const
 type Speed = typeof speeds[number]
 type Mode = 'manual' | 'training' | 'replay'
@@ -70,7 +71,7 @@ function Meter({ label, value, limit, suffix, tone }: { label: string; value?: n
 }
 
 function App() {
-  const [tab, setTab] = useState<'cave' | 'stats'>('cave')
+  const [tab, setTab] = useState<'cave' | 'stats' | 'history'>('cave')
   const [mode, setMode] = useState<Mode>('manual')
   const [speed, setSpeed] = useState<Speed>(5)
   const [watch, setWatch] = useState(initial)
@@ -239,6 +240,7 @@ function App() {
         <nav aria-label="화면 선택">
           <button aria-current={tab === 'cave' ? 'page' : undefined} onClick={() => setTab('cave')}>동굴 탐험</button>
           <button aria-current={tab === 'stats' ? 'page' : undefined} onClick={() => setTab('stats')}>학습 통계</button>
+          {browserTraining && <button aria-current={tab === 'history' ? 'page' : undefined} onClick={() => setTab('history')}>학습 기록</button>}
         </nav>
         <span className="connection"><i className={watcher.connected ? 'online' : ''} />{browserTraining ? (watcher.connected ? '내 브라우저에서 실행' : '브라우저 준비 중') : (watcher.connected ? '서버 연결됨' : '서버 연결 대기')}</span>
       </div>
@@ -368,7 +370,9 @@ function App() {
           <h2>대표 에피소드 다시 보기</h2>
           <div>{watch.replays.map(name => <button key={name} disabled={busy} aria-pressed={mode === 'replay' && selected === name} onClick={() => replay(name)}>{replays[name]}</button>)}</div>
         </section>}
-      </> : <Suspense fallback={<p>학습 통계를 여는 중</p>}><Statistics history={history} watch={watch} replay={replay} busy={busy} /></Suspense>}
+      </> : tab === 'history' ? <Suspense fallback={<p>학습 기록을 여는 중</p>}>
+        <History runId={watch.run_id} completed={watch.episode} warning={watch.error} />
+      </Suspense> : <Suspense fallback={<p>학습 통계를 여는 중</p>}><Statistics history={history} watch={watch} replay={replay} busy={busy} /></Suspense>}
     </main>
     <footer><span>SHH! CERBERUS</span><a href="https://github.com/intellig2nc2/StealTheTreasure">GitHub ↗</a></footer>
   </>

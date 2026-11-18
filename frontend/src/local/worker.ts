@@ -2,6 +2,8 @@ import type { Replay, Row, Summary, Trace, Watch } from '../types'
 import type { Agent } from './dqn'
 import { CaveGame } from './game'
 import { checkpoint } from './storage'
+import { saveEpisode } from './history'
+import type { RunRecord } from './history'
 
 type Config = {
   episodes: number; seed: number; epsilon_decay: number; curriculum: boolean; random_maps: boolean;
@@ -72,7 +74,8 @@ async function episode(agent: Agent, env: CaveGame, number: number, epsilon: num
   return { episode: number, epsilon, layout: env.layout, frames, reward }
 }
 
-async function run(parameters: Config) {
+async function run(parameters: Config, record: RunRecord) {
+  let recording = true
   let agent: Agent | undefined
   try {
     const { Agent } = await import('./dqn')
@@ -90,6 +93,17 @@ async function run(parameters: Config) {
       const env = new CaveGame(stage, mapSeed)
       const trace = await episode(agent, env, number, epsilon, true)
       if (!trace) break
+      if (recording) {
+        try {
+          await saveEpisode(record, {
+            runId: record.id, episode: number, stage, outcome: env.outcome, reward: trace.reward, value: env.value,
+            actions: env.step, hp: env.hp, noise: env.noise, weight: env.weight,
+          })
+        } catch {
+          recording = false
+          error = '브라우저 저장소에 에피소드 기록을 저장할 수 없습니다.'
+        }
+      }
       metrics.record(env, trace.reward)
       history.push({ ...metrics.result(), episode: number, epsilon, stage, reward: trace.reward,
         cumulative: metrics.cumulative, avg100: metrics.avg100 })
@@ -102,7 +116,7 @@ async function run(parameters: Config) {
       await checkpoint(agent.checkpoint())
       hasModel = true
     } catch {
-      error = '브라우저 저장소에 모델을 저장할 수 없습니다. 학습 결과는 현재 탭에서 확인할 수 있습니다.'
+      error ??= '브라우저 저장소에 모델을 저장할 수 없습니다. 학습 결과는 현재 탭에서 확인할 수 있습니다.'
     }
     while (status === 'paused') await sleep(40)
     if (status === 'stopping') {
@@ -146,7 +160,7 @@ function train(value: Config) {
   history = []
   replays.clear()
   live = evaluation = error = null
-  void run(value)
+  void run(value, { id: runId, startedAt: Date.now(), target: value.episodes, seed: value.seed, completed: 0 })
   return { run_id: runId }
 }
 
