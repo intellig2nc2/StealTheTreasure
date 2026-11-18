@@ -12,7 +12,7 @@ import { readCustomGrid, saveCustomGrid } from './customMap'
 const Statistics = lazy(() => import('./Statistics'))
 const History = lazy(() => import('./History'))
 const MapEditor = lazy(() => import('./MapEditor'))
-const speeds = [1, 2, 5, 10, 50, 'MAX'] as const
+const speeds = [1, 2, 5, 10, 50, 100, 'MAX'] as const
 type Speed = typeof speeds[number]
 type Mode = 'manual' | 'training' | 'replay'
 const statusLabels: Record<Status, string> = {
@@ -152,7 +152,7 @@ function App() {
   useEffect(() => {
     if (mode === 'manual' || speed === 'MAX' || !playing) return
     const timer = setInterval(() => setIndex(value => Math.max(0,
-      Math.min(traceLength.current - 1, value + (speed === 50 ? 4 : 1)))), Math.max(32, 450 / speed))
+      Math.min(traceLength.current - 1, value + (speed === 100 ? 7 : speed === 50 ? 4 : 1)))), Math.max(32, 450 / speed))
     return () => clearInterval(timer)
   }, [mode, speed, playing])
 

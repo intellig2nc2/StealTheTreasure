@@ -80,7 +80,7 @@ h1 span { color: var(--gold); }
 .switch { display: flex; gap: 5px; }
 .switch button { font-size: .73rem; padding-inline: 7px; }
 .action-row, .speed-row { display: grid; gap: 6px; grid-template-columns: repeat(4, 1fr) 1.7fr; }
-.speed-row { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.speed-row { grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .action-row button, .speed-row button { padding-inline: 3px; font-size: .9rem; font-weight: 700; }
 .action-row .collect { color: var(--gold); display: flex; align-items: center; justify-content: center; gap: 5px; }
 .manual-reset { display: flex; gap: 7px; margin-top: 9px; align-items: end; }
