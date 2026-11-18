@@ -1,7 +1,10 @@
+import { WEIGHT_LIMIT } from '../types'
 import type { Frame, Layout, Outcome, Point } from '../types'
 import layouts from './layouts.json'
 
 const size = 20
+// Preserve the input scale used by existing checkpoints.
+export const weightInputScale = 12
 const directions: Point[] = [[0, -1], [0, 1], [-1, 0], [1, 0]]
 const gems: Record<number, [number, number, number]> = {
   9: [10, 1, 2], 10: [30, 3, 5], 11: [60, 5, 10], 12: [120, 8, 18],
@@ -47,8 +50,9 @@ function connected(layout: Layout) {
   return seen.size === layout.grid.flat().filter(tile => tile !== 1).length
 }
 
-function cave(stage: number, seed?: number): Layout {
-  const original = layouts[stage - 1] as Layout
+function cave(stage: number, seed?: number, portals = true): Layout {
+  const base = layouts[stage - 1] as Layout
+  const original = portals ? base : { ...base, portals: [], grid: base.grid.map(row => row.map(tile => tile === 6 ? 0 : tile)) }
   if (seed === undefined) return original
   const rng = random(seed)
   const layout: Layout = { ...original, grid: original.grid.map(row => row.slice()) }
@@ -99,8 +103,8 @@ export class CaveGame {
   outcome: Outcome = 'running'
   event = 'enter'
 
-  constructor(stage = 4, seed?: number) {
-    this.layout = cave(stage, seed)
+  constructor(stage = 4, seed?: number, portals = true) {
+    this.layout = cave(stage, seed, portals)
     this.grid = Uint8Array.from(this.layout.grid.flat())
     this.position = this.layout.start
   }
@@ -118,7 +122,7 @@ export class CaveGame {
     const exits = this.exits()
     return {
       map: this.grid.slice(), mask: this.mask(exits),
-      features: [x / 19, y / 19, this.hp / 100, this.noise / 100, this.weight / 12, this.value / 200,
+      features: [x / 19, y / 19, this.hp / 100, this.noise / 100, this.weight / weightInputScale, this.value / 200,
         this.grid[flat(this.position)] / 12, ...exits.map(point => point ? this.grid[flat(point)] / 12 : 1 / 12)],
     }
   }
@@ -149,7 +153,7 @@ export class CaveGame {
       if (survival) this.noise += noise
       this.grid[cell] = 0
       this.event = 'collect'
-      if (this.layout.stage >= 2 && this.weight > 12) this.outcome = 'crushed'
+      if (this.layout.stage >= 2 && this.weight > WEIGHT_LIMIT) this.outcome = 'crushed'
     } else {
       this.position = exits[action]!
       this.moves += 1

@@ -1,8 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import Cave, { TileIcon, tiles } from './Cave'
-import { events, outcomeLabels, replays } from './types'
-import type { Frame, Layout, Replay, Row, Status, Trace, Watch } from './types'
+import { WEIGHT_LIMIT, algorithmLabels, events, outcomeLabels, replays } from './types'
+import type { Algorithm, Frame, Layout, Replay, Row, Status, Trace, Watch } from './types'
 import '@fontsource-variable/space-grotesk'
 import './style.css'
 import { browserTraining, connect, request } from './transport'
@@ -79,6 +79,7 @@ function App() {
   const [manualLayout, setManualLayout] = useState<Layout>()
   const [manualFrames, setManualFrames] = useState<Frame[]>([])
   const [manualSeed, setManualSeed] = useState('')
+  const [manualNoPortals, setManualNoPortals] = useState(false)
   const [manualBusy, setManualBusy] = useState(false)
   const [latest, setLatest] = useState<Trace>()
   const [trace, setTrace] = useState<Trace>()
@@ -93,10 +94,13 @@ function App() {
   const [decay, setDecay] = useState('16000')
   const [evaluationSeed, setEvaluationSeed] = useState('2147483648')
   const [evaluationEpisodes, setEvaluationEpisodes] = useState('20')
+  const [algorithm, setAlgorithm] = useState<Algorithm>('dqn')
+  const [trainingNoPortals, setTrainingNoPortals] = useState(false)
   const [curriculum, setCurriculum] = useState(false)
   const [randomMaps, setRandomMaps] = useState(false)
   const [gpu, setGpu] = useState(false)
   const [resumeModel, setResumeModel] = useState(false)
+  const modelAvailable = algorithm === 'q_learning' ? Boolean(watch.q_checkpoint) : watch.checkpoint
   const run = useRef('')
   const manual = useSocket('play', packet => {
     const data = packet as { layout?: Layout; frame?: Frame; error?: string }
@@ -179,7 +183,10 @@ function App() {
     }
     setError('')
     setManualBusy(true)
-    manual.socket.current.send({ seed: manualSeed === '' ? null : Number(manualSeed) })
+    manual.socket.current.send({
+      seed: manualSeed === '' ? null : Number(manualSeed),
+      ...(browserTraining ? { portals: !manualNoPortals } : {}),
+    })
   }
 
   async function start(event: React.FormEvent<HTMLFormElement>) {
@@ -189,7 +196,8 @@ function App() {
     try {
       await request('train', {
         episodes: Number(preset === 'custom' ? custom : preset), seed: Number(seed), epsilon_decay: Number(decay),
-        curriculum, random_maps: randomMaps, gpu: gpu && watch.cuda, load_checkpoint: resumeModel && watch.checkpoint,
+        curriculum, random_maps: randomMaps, gpu: gpu && watch.cuda, load_checkpoint: resumeModel && modelAvailable,
+        ...(browserTraining ? { algorithm, portals: !trainingNoPortals } : {}),
         evaluation_seed: Number(evaluationSeed), evaluation_episodes: Number(evaluationEpisodes),
       })
       setTrace(undefined)
@@ -250,7 +258,7 @@ function App() {
       {error && <p className="error" role="alert">{error} <button onClick={() => setError('')}>닫기</button></p>}
       {tab === 'cave' ? <>
         <section className="intro">
-          <div><p className="kicker">DOUBLE DQN · 강화학습 시뮬레이션</p>
+          <div><p className="kicker">강화학습 시뮬레이션</p>
             <h1>쉿! <span>케르베로스</span></h1>
             <p>잠든 수호견을 피해 보석을 모으고, 살아서 입구로 돌아오세요.</p></div>
           <div className="intro-status"><span>{statusLabels[watch.status]}</span><strong>{watch.episode.toLocaleString('ko-KR')}<small> / {watch.total.toLocaleString('ko-KR')} 회</small></strong></div>
@@ -276,7 +284,7 @@ function App() {
               </div>
             </div>
             <div className="legend" aria-label="지도 범례">
-              {[2, 8, 9, 10, 11, 12, 3, 4, 5, 6, 7].map(tile =>
+              {[2, 8, 9, 10, 11, 12, 3, 4, 5, 6, 7].filter(tile => tile !== 6 || layout?.portals.length).map(tile =>
                 <span key={tile} title={gemInfo[tile - 9] ?? tiles[tile][0]}><TileIcon tile={tile} />{tiles[tile][0]}</span>)}
             </div>
           </section>
@@ -288,7 +296,7 @@ function App() {
               <div className="meters">
                 <Meter label="체력" value={frame?.hp} limit={100} tone="#91b39b" />
                 <Meter label="소음" value={frame?.noise} limit={100} tone="#e38f6d" />
-                <Meter label="무게" value={frame?.weight} limit={12} suffix="kg" tone="#9bb2d2" />
+                <Meter label="무게" value={frame?.weight} limit={WEIGHT_LIMIT} suffix="kg" tone="#9bb2d2" />
                 <Meter label="수집한 보석 가치" value={frame?.value} tone="#ecc37f" />
               </div>
             </section>
@@ -311,6 +319,8 @@ function App() {
                     <label><span>지도 시드</span><input inputMode="numeric" value={manualSeed} onChange={event => setManualSeed(event.target.value)} placeholder="기본 지도" /></label>
                     <button disabled={!manual.connected || manualBusy} onClick={restart}>다시 시작</button>
                   </div>
+                  {browserTraining && <label className="map-toggle"><input type="checkbox" checked={manualNoPortals}
+                    onChange={event => setManualNoPortals(event.target.checked)} />지름길 없는 지도 (다시 시작 시 적용)</label>}
                   <p className="hint">방향키 또는 WASD로 이동 · E 또는 Space로 수집</p>
                 </> : <>
                   <p className="observer">{trace ? `에피소드 ${trace.episode.toLocaleString('ko-KR')} · ε ${trace.epsilon.toFixed(2)}` : '학습을 시작하면 AI를 관찰할 수 있습니다.'}</p>
@@ -330,7 +340,7 @@ function App() {
 
             <section className="panel trainer">
               <div className="panel-head"><div><span className="square-icon" aria-hidden="true">▤</span><h2>학습 설정</h2></div>
-                <span className="technical">{watch.device?.toUpperCase() ?? 'CPU'} · DOUBLE DQN</span></div>
+                <span className="technical">{watch.device?.toUpperCase() ?? 'CPU'} · {algorithmLabels[(active ? watch.config?.algorithm : algorithm) ?? 'dqn']}</span></div>
               <form className="panel-body" onSubmit={start}>
                 <fieldset disabled={active || busy}>
                   <label className="episode-select"><span>학습 에피소드</span>
@@ -340,6 +350,15 @@ function App() {
                     </select>
                   </label>
                   {preset === 'custom' && <label className="custom"><span>에피소드 수</span><input type="number" min="1" max="50000" required value={custom} onChange={event => setCustom(event.target.value)} /></label>}
+                  {browserTraining && <div className="training-variant">
+                    <label className="episode-select"><span>학습 알고리즘</span>
+                      <select value={algorithm} onChange={event => { setAlgorithm(event.target.value as Algorithm); setResumeModel(false) }}>
+                        <option value="dqn">Double DQN</option><option value="q_learning">Q-learning</option>
+                      </select>
+                    </label>
+                    <label className="map-toggle"><input type="checkbox" checked={trainingNoPortals}
+                      onChange={event => setTrainingNoPortals(event.target.checked)} />학습에 지름길 없는 지도 사용</label>
+                  </div>}
                   <details><summary>시드 및 고급 옵션</summary><div className="advanced">
                     <label>학습 시드<input type="number" min="0" max="2147483647" required value={seed} onChange={event => setSeed(event.target.value)} /></label>
                     <label>ε 감소 기간<input type="number" min="1" max="50000" required value={decay} onChange={event => setDecay(event.target.value)} /></label>
@@ -348,7 +367,7 @@ function App() {
                     <label className="check"><input type="checkbox" checked={curriculum} onChange={event => setCurriculum(event.target.checked)} />쉬운 지도부터 단계별 학습</label>
                     <label className="check"><input type="checkbox" checked={randomMaps} onChange={event => setRandomMaps(event.target.checked)} />시드 기반 랜덤 지도</label>
                     <label className="check"><input type="checkbox" checked={gpu && watch.cuda} disabled={!watch.cuda} onChange={event => setGpu(event.target.checked)} />CUDA 사용</label>
-                    <label className="check"><input type="checkbox" checked={resumeModel && watch.checkpoint} disabled={!watch.checkpoint} onChange={event => setResumeModel(event.target.checked)} />저장 모델 불러오기</label>
+                    <label className="check"><input type="checkbox" checked={resumeModel && modelAvailable} disabled={!modelAvailable} onChange={event => setResumeModel(event.target.checked)} />저장 모델 불러오기</label>
                   </div></details>
                 </fieldset>
                 {browserTraining && <p className="hint">학습은 이 탭에서 실행되고 완료·중단 시 모델이 이 브라우저에 저장됩니다.</p>}

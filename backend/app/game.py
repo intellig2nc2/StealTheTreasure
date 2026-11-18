@@ -7,6 +7,7 @@ import numpy as np
 from gymnasium import spaces
 
 SIZE = 20
+WEIGHT_LIMIT = 30
 ACTIONS = ("UP", "DOWN", "LEFT", "RIGHT", "COLLECT")
 DIRECTIONS = ((0, -1), (0, 1), (-1, 0), (1, 0))
 
@@ -171,8 +172,8 @@ class CerberusEnv(gym.Env):
             "position": spaces.MultiDiscrete([SIZE, SIZE]),
             "hp": spaces.Box(0, 100, (), dtype=np.int16),
             "noise": spaces.Box(0, 125, (), dtype=np.int16),
-            "weight": spaces.Box(0, 20, (), dtype=np.int16),
-            "gem_value": spaces.Box(0, 400, (), dtype=np.int16),
+            "weight": spaces.Box(0, WEIGHT_LIMIT + max(mass for _, mass, _ in GEMS.values()), (), dtype=np.int16),
+            "gem_value": spaces.Box(0, 420, (), dtype=np.int16),
             "map": spaces.Box(0, len(Tile) - 1, (SIZE, SIZE), dtype=np.uint8),
             "collected_gems": spaces.MultiBinary((SIZE, SIZE)),
             "used_items": spaces.MultiBinary((SIZE, SIZE)),
@@ -235,7 +236,7 @@ class CerberusEnv(gym.Env):
             self.noise += noise if survival else 0
             self.grid[y, x] = Tile.FLOOR
             self.event = "collect"
-            if self.stage >= 2 and self.weight > 12:
+            if self.stage >= 2 and self.weight > WEIGHT_LIMIT:
                 self.outcome = "crushed"
         else:
             self.moves += 1

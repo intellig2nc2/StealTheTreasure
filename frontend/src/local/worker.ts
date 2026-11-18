@@ -1,13 +1,14 @@
-import type { Replay, Row, Summary, Trace, Watch } from '../types'
+import type { Algorithm, Replay, Row, Summary, Trace, Watch } from '../types'
 import type { Agent } from './dqn'
 import { CaveGame } from './game'
-import { checkpoint } from './storage'
+import { checkpoint, qCheckpoint } from './storage'
+import { QLearning } from './qlearning'
 import { saveEpisode } from './history'
 import type { RunRecord } from './history'
 
 type Config = {
   episodes: number; seed: number; epsilon_decay: number; curriculum: boolean; random_maps: boolean;
-  load_checkpoint: boolean; evaluation_episodes: number; evaluation_seed: number
+  algorithm: Algorithm; portals: boolean; load_checkpoint: boolean; evaluation_episodes: number; evaluation_seed: number
 }
 const labels = ['early', 'middle', 'late', 'evaluation'] as const
 const replays = new Map<Replay, Trace>()
@@ -19,9 +20,11 @@ let config: Config | null = null
 let evaluation: Summary | null = null
 let error: string | null = null
 let hasModel = false
+let hasQModel = false
 const active = () => ['running', 'paused', 'stopping', 'evaluating'].includes(status)
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 void checkpoint().then(model => { hasModel = Boolean(model) }).catch(() => {})
+void qCheckpoint().then(model => { hasQModel = Boolean(model) }).catch(() => {})
 
 class Metrics {
   private counts = { escaped: 0, cerberus: 0, crushed: 0, hp_depleted: 0, timeout: 0 }
@@ -53,7 +56,7 @@ class Metrics {
   }
 }
 
-async function episode(agent: Agent, env: CaveGame, number: number, epsilon: number, train: boolean) {
+async function episode(agent: Agent | QLearning, env: CaveGame, number: number, epsilon: number, train: boolean) {
   const frames = [env.frame()]
   let state = env.observe()
   let reward = 0
@@ -76,21 +79,32 @@ async function episode(agent: Agent, env: CaveGame, number: number, epsilon: num
 
 async function run(parameters: Config, record: RunRecord) {
   let recording = true
-  let agent: Agent | undefined
+  let agent: Agent | QLearning | undefined
   try {
-    const { Agent } = await import('./dqn')
-    agent = new Agent(parameters.seed)
-    if (parameters.load_checkpoint) {
-      const saved = await checkpoint()
-      if (!saved) throw new Error('저장된 모델이 없습니다.')
-      agent.restore(saved)
+    if (parameters.algorithm === 'q_learning') {
+      const table = new QLearning(parameters.seed)
+      agent = table
+      if (parameters.load_checkpoint) {
+        const saved = await qCheckpoint()
+        if (!saved) throw new Error('저장된 Q 테이블이 없습니다.')
+        table.restore(saved)
+      }
+    } else {
+      const { Agent } = await import('./dqn')
+      const network = new Agent(parameters.seed)
+      agent = network
+      if (parameters.load_checkpoint) {
+        const saved = await checkpoint()
+        if (!saved) throw new Error('저장된 모델이 없습니다.')
+        network.restore(saved)
+      }
     }
     const metrics = new Metrics()
     for (let number = 1; number <= parameters.episodes; number++) {
       const stage = parameters.curriculum && number < parameters.episodes ? 1 + Math.floor((number - 1) * 4 / parameters.episodes) : 4
       const mapSeed = parameters.random_maps ? (parameters.seed + number - 1) % 2147483648 : undefined
       const epsilon = Math.max(0.05, 1 - 0.95 * (number - 1) / parameters.epsilon_decay)
-      const env = new CaveGame(stage, mapSeed)
+      const env = new CaveGame(stage, mapSeed, parameters.portals)
       const trace = await episode(agent, env, number, epsilon, true)
       if (!trace) break
       if (recording) {
@@ -113,8 +127,13 @@ async function run(parameters: Config, record: RunRecord) {
       await sleep(0)
     }
     try {
-      await checkpoint(agent.checkpoint())
-      hasModel = true
+      if (agent instanceof QLearning) {
+        await qCheckpoint(agent.checkpoint())
+        hasQModel = true
+      } else {
+        await checkpoint(agent.checkpoint())
+        hasModel = true
+      }
     } catch {
       error ??= '브라우저 저장소에 모델을 저장할 수 없습니다. 학습 결과는 현재 탭에서 확인할 수 있습니다.'
     }
@@ -126,7 +145,7 @@ async function run(parameters: Config, record: RunRecord) {
     status = 'evaluating'
     const assessment = new Metrics()
     for (let index = 0; index < parameters.evaluation_episodes; index++) {
-      const env = new CaveGame(4, parameters.evaluation_seed + index)
+      const env = new CaveGame(4, parameters.evaluation_seed + index, parameters.portals)
       const trace = await episode(agent, env, index + 1, 0, false)
       if (!trace) break
       assessment.record(env, trace.reward)
@@ -153,14 +172,16 @@ function train(value: Config) {
       || !valid(value.evaluation_seed, 2147483648, 4294967195) || !valid(value.evaluation_episodes, 1, 100)) {
     throw new Error('학습 설정을 확인해 주세요.')
   }
-  if (value.load_checkpoint && !hasModel) throw new Error('저장된 모델이 없습니다.')
+  if (!['dqn', 'q_learning'].includes(value.algorithm)) throw new Error('학습 알고리즘을 확인해 주세요.')
+  if (value.load_checkpoint && !(value.algorithm === 'q_learning' ? hasQModel : hasModel)) throw new Error('저장된 모델이 없습니다.')
   config = value
   runId = crypto.randomUUID()
   status = 'running'
   history = []
   replays.clear()
   live = evaluation = error = null
-  void run(value, { id: runId, startedAt: Date.now(), target: value.episodes, seed: value.seed, completed: 0 })
+  void run(value, { id: runId, startedAt: Date.now(), target: value.episodes, seed: value.seed, completed: 0,
+    algorithm: value.algorithm, portals: value.portals })
   return { run_id: runId }
 }
 
@@ -185,11 +206,11 @@ const message = (failure: unknown) => failure instanceof Error ? failure.message
 function play(port: MessagePort) {
   let game = new CaveGame()
   port.postMessage({ layout: game.layout, frame: game.frame() })
-  port.onmessage = ({ data }: MessageEvent<{ action?: number; seed?: number | null; disconnect?: boolean }>) => {
+  port.onmessage = ({ data }: MessageEvent<{ action?: number; seed?: number | null; portals?: boolean; disconnect?: boolean }>) => {
     if (data.disconnect) { port.close(); return }
     try {
       if (data.action === undefined) {
-        game = new CaveGame(4, data.seed ?? undefined)
+        game = new CaveGame(4, data.seed ?? undefined, data.portals)
         port.postMessage({ layout: game.layout, frame: game.frame() })
       } else {
         const reward = game.advance(data.action)
@@ -207,10 +228,10 @@ function watch(port: MessagePort) {
     if (previous !== runId) cursor = 0
     const state: Watch = { run_id: runId, status, episode: history.length, total: config?.episodes ?? 0,
       history: history.slice(cursor, cursor + 1000), live: max ? null : live,
-      replays: labels.filter(name => replays.has(name)), evaluation, error, checkpoint: hasModel,
+      replays: labels.filter(name => replays.has(name)), evaluation, error, checkpoint: hasModel, q_checkpoint: hasQModel,
       device: 'cpu', cuda: false, config }
     const next = [runId, status, max, cursor + state.history.length, state.live?.episode,
-      state.live?.frames.length, hasModel, state.replays.length, error].join(':')
+      state.live?.frames.length, hasModel, hasQModel, state.replays.length, error].join(':')
     if (next !== stamp) {
       port.postMessage(state)
       stamp = next

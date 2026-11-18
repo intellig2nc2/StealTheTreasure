@@ -41,9 +41,9 @@ def test_mask_collect_and_exact_escape_reward(env):
 
 def test_overweight_stays_unmasked_and_dies_with_no_reward(env):
     env.position = (4, 17)
-    env.weight, env.value = 11, 120
+    env.weight, env.value = 29, 120
     assert env.mask()[4]
-    assert env.step(4)[1] == 0 and env.weight == 12 and env.outcome == "running"
+    assert env.step(4)[1] == 0 and env.weight == 30 and env.outcome == "running"
     env.position = (6, 3)
     assert env.mask()[4]
     _, reward, terminated, _, info = env.step(4)

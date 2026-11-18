@@ -163,3 +163,6 @@ footer a { display: flex; align-items: center; min-height: 44px; }
 .history-table tbody tr + tr { border-top: 1px solid var(--line); }
 .history-table tbody tr:nth-child(even) { background: #222118; }
 .history-pages { justify-content: center; }
+
+.training-variant { margin-top: 10px; }
+.map-toggle { display: flex; align-items: center; gap: 7px; min-height: 44px; color: var(--muted); font-size: .78rem; }

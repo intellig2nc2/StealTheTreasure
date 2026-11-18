@@ -11,12 +11,14 @@ from .game import ACTIONS, SIZE, Tile
 GAMMA = 0.99
 BATCH_SIZE = 64
 TARGET_INTERVAL = 1000
+# Preserve the input scale used by existing checkpoints.
+WEIGHT_INPUT_SCALE = 12
 
 
 def pack(state):
     x, y = state["position"]
     return state["map"], (x / 19, y / 19, float(state["hp"]) / 100,
-                          float(state["noise"]) / 100, float(state["weight"]) / 12,
+                          float(state["noise"]) / 100, float(state["weight"]) / WEIGHT_INPUT_SCALE,
                           float(state["gem_value"]) / 200)
 
 
