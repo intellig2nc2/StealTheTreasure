@@ -56,13 +56,26 @@ class Metrics {
   }
 }
 
-async function episode(agent: Agent | QLearning, env: CaveGame, number: number, epsilon: number, train: boolean) {
+async function episode(agent: Agent | QLearning, env: CaveGame, number: number, epsilon: number, train: boolean, previousPath?: string) {
   const frames = [env.frame()]
   let state = env.observe()
   let reward = 0
   while (env.outcome === 'running') {
     while (status === 'paused') await sleep(40)
     if (status === 'stopping') return null
+    if (train && previousPath) {
+      const path = frames.map(frame => frame.position.join(',')).filter((cell, index, cells) => index === 0 || cell !== cells[index - 1])
+      const allowed = state.mask.slice()
+      for (let action = 0; action < allowed.length; action++) {
+        if (!allowed[action]) continue
+        const next = env.preview(action)
+        const cell = next.position.join(',')
+        const candidate = cell === path[path.length - 1] ? path : [...path, cell]
+        if (next.outcome !== 'running' && candidate.join(';') === previousPath) allowed[action] = 0
+      }
+      if (!allowed.some(Boolean)) return 'duplicate' as const
+      state = { ...state, mask: allowed }
+    }
     const action = agent.choose(state, epsilon)
     reward = env.advance(action)
     const next = env.observe()
@@ -100,13 +113,23 @@ async function run(parameters: Config, record: RunRecord, layout?: Layout) {
       }
     }
     const metrics = new Metrics()
+    let previousPath: string | undefined
     for (let number = 1; number <= parameters.episodes; number++) {
       const stage = !layout && parameters.curriculum && number < parameters.episodes ? 1 + Math.floor((number - 1) * 4 / parameters.episodes) : 4
       const mapSeed = parameters.random_maps ? (parameters.seed + number - 1) % 2147483648 : undefined
       const epsilon = Math.max(0.05, 1 - 0.95 * (number - 1) / parameters.epsilon_decay)
-      const env = new CaveGame(stage, mapSeed, parameters.portals, layout)
-      const trace = await episode(agent, env, number, epsilon, true)
+      let env = new CaveGame(stage, mapSeed, parameters.portals, layout)
+      let trace = await episode(agent, env, number, epsilon, true, previousPath)
+      let attempts = 0
+      while (trace === 'duplicate' && attempts < 100) {
+        attempts += 1
+        env = new CaveGame(stage, mapSeed, parameters.portals, layout)
+        trace = await episode(agent, env, number, epsilon, true, previousPath)
+      }
+      if (trace === 'duplicate') throw new Error('이전 경로와 다른 경로를 찾지 못해 학습을 중단했습니다.')
       if (!trace) break
+      previousPath = trace.frames.map(frame => frame.position.join(','))
+        .filter((cell, index, cells) => index === 0 || cell !== cells[index - 1]).join(';')
       if (recording) {
         try {
           await saveEpisode(record, {
@@ -147,7 +170,7 @@ async function run(parameters: Config, record: RunRecord, layout?: Layout) {
     for (let index = 0; index < parameters.evaluation_episodes; index++) {
       const env = new CaveGame(4, parameters.evaluation_seed + index, parameters.portals, layout)
       const trace = await episode(agent, env, index + 1, 0, false)
-      if (!trace) break
+      if (!trace || trace === 'duplicate') break
       assessment.record(env, trace.reward)
       if (trace.reward > (replays.get('evaluation')?.reward ?? -1)) replays.set('evaluation', trace)
       await sleep(0)

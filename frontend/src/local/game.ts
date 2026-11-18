@@ -211,6 +211,14 @@ export class CaveGame {
     }
   }
 
+  preview(action: number): CaveGame {
+    const copy = Object.assign(Object.create(CaveGame.prototype) as CaveGame, this, {
+      grid: this.grid.slice(), visited: new Set(this.visited), position: [...this.position] as Point,
+    })
+    copy.advance(action)
+    return copy
+  }
+
   private checkSurvival() {
     this.hp = Math.max(0, this.hp)
     if (this.noise >= 100) this.outcome = 'cerberus'
