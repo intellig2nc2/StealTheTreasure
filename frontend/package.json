@@ -6,19 +6,21 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:sites": "tsc --noEmit && vite build --mode sites"
   },
   "dependencies": {
     "@fontsource-variable/space-grotesk": "^5.2.10",
+    "@tensorflow/tfjs": "^4.22.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "recharts": "^3.0.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^5.0.0",
-    "@tailwindcss/vite": "^4.1.0",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.8.0",
     "vite": "^7.0.0"

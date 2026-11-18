@@ -5,6 +5,8 @@ import { events, outcomeLabels, replays } from './types'
 import type { Frame, Layout, Replay, Row, Status, Trace, Watch } from './types'
 import '@fontsource-variable/space-grotesk'
 import './style.css'
+import { browserTraining, connect, request } from './transport'
+import type { Connection } from './transport'
 
 const Statistics = lazy(() => import('./Statistics'))
 const speeds = [1, 2, 5, 10, 50, 'MAX'] as const
@@ -19,29 +21,13 @@ const controls = [
 ]
 const gemInfo = ['가치 10 · 1kg · 소음 +2', '가치 30 · 3kg · 소음 +5', '가치 60 · 5kg · 소음 +10', '가치 120 · 8kg · 소음 +18']
 const keys: Record<string, number> = { ArrowUp: 0, w: 0, ArrowDown: 1, s: 1, ArrowLeft: 2, a: 2, ArrowRight: 3, d: 3, ' ': 4, e: 4 }
-const base = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')
 const initial: Watch = {
   run_id: '', status: 'idle', episode: 0, total: 0, history: [], live: null,
   replays: [], evaluation: null, error: null, checkpoint: false, device: null, cuda: false, config: null,
 }
 
-function connect(path: string) {
-  const url = new URL(`${base}/api/${path}`, location.href)
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-  return new WebSocket(url)
-}
-
-async function request(path: string, payload?: object) {
-  const response = await fetch(`${base}/api/${path}`, payload ? {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-  } : undefined)
-  const result = await response.json()
-  if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : '입력 값을 확인해 주세요.')
-  return result
-}
-
-function useSocket(path: string, receive: (data: MessageEvent) => void, onOpen?: (socket: WebSocket) => void) {
-  const socket = useRef<WebSocket | null>(null)
+function useSocket(path: string, receive: (data: unknown) => void, onOpen?: (socket: Connection) => void) {
+  const socket = useRef<Connection | null>(null)
   const callbacks = useRef({ receive, onOpen })
   callbacks.current = { receive, onOpen }
   const [connected, setConnected] = useState(false)
@@ -49,19 +35,19 @@ function useSocket(path: string, receive: (data: MessageEvent) => void, onOpen?:
     let timer: ReturnType<typeof setTimeout>
     let active = true
     function open() {
-      const connection = connect(path)
-      socket.current = connection
-      connection.onopen = () => {
-        if (!active) return
-        setConnected(true)
-        callbacks.current.onOpen?.(connection)
-      }
-      connection.onmessage = event => { if (active) callbacks.current.receive(event) }
-      connection.onclose = () => {
-        if (!active) return
-        setConnected(false)
-        timer = setTimeout(open, 1500)
-      }
+      socket.current = connect(path, {
+        open: connection => {
+          if (!active) return
+          setConnected(true)
+          callbacks.current.onOpen?.(connection)
+        },
+        message: data => { if (active) callbacks.current.receive(data) },
+        close: () => {
+          if (!active) return
+          setConnected(false)
+          timer = setTimeout(open, 1500)
+        },
+      })
     }
     open()
     return () => {
@@ -100,7 +86,7 @@ function App() {
   const [selected, setSelected] = useState<Replay>()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [preset, setPreset] = useState('20000')
+  const [preset, setPreset] = useState(browserTraining ? '1000' : '20000')
   const [custom, setCustom] = useState('100')
   const [seed, setSeed] = useState('42')
   const [decay, setDecay] = useState('16000')
@@ -111,8 +97,8 @@ function App() {
   const [gpu, setGpu] = useState(false)
   const [resumeModel, setResumeModel] = useState(false)
   const run = useRef('')
-  const manual = useSocket('play', event => {
-    const data = JSON.parse(event.data) as { layout?: Layout; frame?: Frame; error?: string }
+  const manual = useSocket('play', packet => {
+    const data = packet as { layout?: Layout; frame?: Frame; error?: string }
     setManualBusy(false)
     if (data.error) setError(data.error)
     if (data.layout) setManualLayout(data.layout)
@@ -121,8 +107,8 @@ function App() {
       setManualFrames(frames => data.layout ? [frame] : [...frames, frame])
     }
   }, () => setManualBusy(false))
-  const watcher = useSocket('watch', event => {
-    const data = JSON.parse(event.data) as Watch
+  const watcher = useSocket('watch', packet => {
+    const data = packet as Watch
     if (run.current !== data.run_id) {
       run.current = data.run_id
       setHistory(data.history)
@@ -133,11 +119,11 @@ function App() {
       if (data.live) setLatest(data.live)
     }
     setWatch(data)
-  }, socket => socket.send(JSON.stringify({ max_speed: speed === 'MAX' })))
+  }, socket => socket.send({ max_speed: speed === 'MAX' }))
 
   useEffect(() => {
     if (watcher.socket.current?.readyState === WebSocket.OPEN) {
-      watcher.socket.current.send(JSON.stringify({ max_speed: speed === 'MAX' }))
+      watcher.socket.current.send({ max_speed: speed === 'MAX' })
     }
   }, [speed, watcher.socket])
 
@@ -170,7 +156,7 @@ function App() {
     if (mode !== 'manual' || manualBusy || frame?.outcome !== 'running' || !frame.mask[action]
       || manual.socket.current?.readyState !== WebSocket.OPEN) return
     setManualBusy(true)
-    manual.socket.current.send(JSON.stringify({ action }))
+    manual.socket.current.send({ action })
   }
 
   useEffect(() => {
@@ -192,7 +178,7 @@ function App() {
     }
     setError('')
     setManualBusy(true)
-    manual.socket.current.send(JSON.stringify({ seed: manualSeed === '' ? null : Number(manualSeed) }))
+    manual.socket.current.send({ seed: manualSeed === '' ? null : Number(manualSeed) })
   }
 
   async function start(event: React.FormEvent<HTMLFormElement>) {
@@ -254,7 +240,7 @@ function App() {
           <button aria-current={tab === 'cave' ? 'page' : undefined} onClick={() => setTab('cave')}>동굴 탐험</button>
           <button aria-current={tab === 'stats' ? 'page' : undefined} onClick={() => setTab('stats')}>학습 통계</button>
         </nav>
-        <span className="connection"><i className={watcher.connected ? 'online' : ''} />{watcher.connected ? '서버 연결됨' : '서버 연결 대기'}</span>
+        <span className="connection"><i className={watcher.connected ? 'online' : ''} />{browserTraining ? (watcher.connected ? '내 브라우저에서 실행' : '브라우저 준비 중') : (watcher.connected ? '서버 연결됨' : '서버 연결 대기')}</span>
       </div>
     </header>
 
@@ -347,7 +333,7 @@ function App() {
                 <fieldset disabled={active || busy}>
                   <label className="episode-select"><span>학습 에피소드</span>
                     <select value={preset} onChange={event => setPreset(event.target.value)}>
-                      {[1000, 5000, 10000, 20000, 50000].map(n => <option value={n} key={n}>{n.toLocaleString('ko-KR')}회{n === 20000 ? ' · 기본 학습' : ''}</option>)}
+                      {[1000, 5000, 10000, 20000, 50000].map(n => <option value={n} key={n}>{n.toLocaleString('ko-KR')}회{n === (browserTraining ? 1000 : 20000) ? ' · 기본 학습' : ''}</option>)}
                       <option value="custom">직접 입력</option>
                     </select>
                   </label>
@@ -363,6 +349,7 @@ function App() {
                     <label className="check"><input type="checkbox" checked={resumeModel && watch.checkpoint} disabled={!watch.checkpoint} onChange={event => setResumeModel(event.target.checked)} />저장 모델 불러오기</label>
                   </div></details>
                 </fieldset>
+                {browserTraining && <p className="hint">학습은 이 탭에서 실행되고 완료·중단 시 모델이 이 브라우저에 저장됩니다.</p>}
                 <div className="progress-meta"><span>{statusLabels[watch.status]}</span><span>{watch.total ? (100 * watch.episode / watch.total).toFixed(1) : '0'}%</span></div>
                 <progress aria-label="학습 진행률" value={watch.episode} max={watch.total || 1} />
                 <div className="training-actions">

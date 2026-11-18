@@ -4,6 +4,7 @@ import tailwind from '@tailwindcss/vite'
 
 export default defineConfig({
   base: './',
+  worker: { format: 'es' },
   plugins: [react(), tailwind()],
   server: { proxy: { '/api': { target: 'http://127.0.0.1:8000', ws: true } } },
 })
