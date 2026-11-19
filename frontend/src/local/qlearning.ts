@@ -20,7 +20,7 @@ export class QLearning {
   private readonly rng: () => number
   private table = new Map<string, number[]>()
 
-  constructor(seed: number) { this.rng = random(seed) }
+  constructor(seed: number, private readonly maxEntries = capacity) { this.rng = random(seed) }
 
   choose(state: Observation, epsilon: number) {
     const valid = validActions(state)
@@ -43,7 +43,7 @@ export class QLearning {
     values[action] += alpha * (reward + gamma * future - values[action])
     if (!previous) {
       // shortcut: cap the table in a browser tab; increase only after measuring memory on long runs.
-      if (this.table.size >= capacity) this.table.delete(this.table.keys().next().value!)
+      if (this.table.size >= this.maxEntries) this.table.delete(this.table.keys().next().value!)
       this.table.set(id, values)
     }
   }

@@ -5,8 +5,9 @@ import { outcomeLabels } from './types'
 import type { Frame } from './types'
 
 type Entry = { id: string; createdAt: number; completed: number; target: number }
-type Run = { id: string; portals: boolean; target: number; blocked: boolean; owner: boolean; frames: Frame[]
-  episodes: { score: number; outcome: Frame['outcome']; steps: number }[] }
+type Episode = { score: number; outcome: Frame['outcome']; steps: number }
+type Run = { id: string; portals: boolean; target: number; completed: number; blocked: boolean; owner: boolean; frames: Frame[]
+  episodes: Episode[] }
 
 async function api<T>(path = '', method = 'GET'): Promise<T> {
   const response = await fetch('/api/online' + path, { method })
@@ -20,16 +21,21 @@ export default function Online() {
   const [entries, setEntries] = useState<Entry[]>([])
   const [signedIn, setSignedIn] = useState(false)
   const [portals, setPortals] = useState(true)
+  const [target, setTarget] = useState(1000)
+  const [archive, setArchive] = useState<{ id: string; end: number; episodes: Episode[] }>()
   const [run, setRun] = useState<Run>()
   const [running, setRunning] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [frameIndex, setFrameIndex] = useState(1)
-  const episode = run?.episodes.length ?? 0
+  const episode = run?.completed ?? 0
   const ended = Boolean(run && (run.blocked || episode >= run.target))
   const layout = useMemo(() => new CaveGame(4, undefined, run?.portals).layout, [run?.portals])
   const frames = run?.frames.slice(0, frameIndex) ?? []
   const frame = frames.at(-1)
+  const archivePage = archive?.id === selected ? archive : undefined
+  const records = archivePage?.episodes ?? run?.episodes ?? []
+  const newest = archivePage?.end ?? episode
 
   useEffect(() => {
     let cancelled = false
@@ -59,8 +65,8 @@ export default function Online() {
         if (cancelled) return
         setRun(next)
         setError('')
-        if (next.blocked || next.episodes.length >= next.target) setRunning(false)
-        else timer = setTimeout(refresh, running ? 1800 : 2000)
+        if (next.blocked || next.completed >= next.target) setRunning(false)
+        else timer = setTimeout(refresh, running ? 600 : 2000)
       } catch (failure) {
         if (cancelled) return
         setError(failure instanceof Error ? failure.message : '학습 상태를 불러오지 못했습니다.')
@@ -86,6 +92,7 @@ export default function Online() {
   function choose(id: string) {
     setSelected(id)
     setRun(undefined)
+    setArchive(undefined)
     setRunning(false)
     setError('')
     history.replaceState(null, '', id ? '#online/' + id : '#online')
@@ -95,7 +102,7 @@ export default function Online() {
     setBusy(true)
     setError('')
     try {
-      const next = await api<Run>(portals ? '' : '?portals=off', 'POST')
+      const next = await api<Run>(`?target=${target}&portals=${portals ? 'on' : 'off'}`, 'POST')
       choose(next.id)
       setRun(next)
       setRunning(true)
@@ -107,12 +114,36 @@ export default function Online() {
     }
   }
 
+  async function extend() {
+    if (!run) return
+    setBusy(true)
+    try {
+      setRun(await api<Run>(`/${run.id}?target=${target}`, 'POST'))
+      setRunning(true)
+      setError('')
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : '학습을 연장하지 못했습니다.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function earlier() {
+    const before = newest - records.length + 1
+    try {
+      const page = await api<{ end: number; episodes: Episode[] }>(`/${selected}?before=${before}`)
+      setArchive({ id: selected, ...page })
+    } catch {
+      setError('이전 회차를 불러오지 못했습니다.')
+    }
+  }
+
   return <>
     <section className="intro">
       <div><p className="kicker">Q-learning</p><h1>온라인 <span>학습</span></h1>
         <p>서버에서 실행하는 탐험을 팀과 함께 보고, 회차별 점수를 확인하세요.</p></div>
       {run && <div className="intro-status"><span>{ended ? run.blocked ? '새 경로를 찾지 못했습니다' : '학습 완료' : running ? '학습 중' : '진행 및 기록 보기'}</span>
-        <strong>{episode}<small> / {run.target} 회</small></strong></div>}
+        <strong>{episode.toLocaleString('ko-KR')}<small> / {run.target.toLocaleString('ko-KR')} 회</small></strong></div>}
     </section>
     {error && <p className="error" role="alert">{error}</p>}
     <div className="workspace">
@@ -137,8 +168,15 @@ export default function Online() {
             </select></label>
             <p className="hint">시작한 사람이 이 화면을 열어 두면 학습이 계속됩니다. 현재 주소를 공유하면 팀원도 같은 학습을 볼 수 있습니다.</p>
             {signedIn ? <div>
+              <label className="episode-select"><span>목표 회차</span><select value={target}
+                onChange={event => setTarget(Number(event.target.value))}>
+                <option value={1000}>1,000회</option><option value={5000}>5,000회</option>
+              </select></label>
               <label className="map-toggle"><input type="checkbox" checked={!portals} onChange={event => setPortals(!event.target.checked)} /> 지름길 없이</label>
-              <button className="primary" disabled={busy || running} onClick={start}>새 학습 시작 · 20회</button>
+              <button className="primary" disabled={busy || running} onClick={start}>새 학습 시작</button>
+              {run?.owner && target > run.target && <button disabled={busy || running} onClick={extend}>
+                {target.toLocaleString('ko-KR')}회까지 이어서 학습
+              </button>}
             </div> : <a href="/signin-with-chatgpt?return_to=%2F%23online">로그인하고 학습 시작</a>}
             {run?.owner && !ended && <button type="button" onClick={() => setRunning(!running)}>{running ? '일시 정지' : '이어서 학습'}</button>}
           </div>
@@ -147,9 +185,11 @@ export default function Online() {
           <div className="panel-head"><h2>회차별 기록</h2></div>
           <div className="board-body">
             {episode === 0 ? <p className="hint">첫 탐험이 끝나면 점수가 표시됩니다.</p> :
-              <ol reversed start={episode}>{run?.episodes.slice().reverse().map((result, index) => <li key={episode - index}>
+              <ol reversed start={newest}>{records.slice().reverse().map((result, index) => <li key={newest - index}>
                 {outcomeLabels[result.outcome]} · {result.score}점 · {result.steps}행동
               </li>)}</ol>}
+            {newest > records.length && <button onClick={earlier}>이전 회차</button>}
+            {archivePage && <button onClick={() => setArchive(undefined)}>최신 회차</button>}
           </div>
         </section>
       </aside>

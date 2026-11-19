@@ -21,20 +21,43 @@ type Run = {
   frames: Frame[]
 }
 type Row = { id: string; owner: string; revision: number; state: string }
+const targets = [1000, 5000]
+const attemptsPerRequest = 10
+const retryLimit = 400
+const pageSize = 20
 const json = (data: unknown, status = 200) =>
   Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } })
 
 function view(row: Row, state: Run, user: string | null) {
   const { portals, target, episodes, frames, retries } = state
-  return { id: row.id, portals, target, episodes, frames, blocked: retries >= 20, owner: row.owner === user }
+  return { id: row.id, portals, target, completed: episodes.length, episodes: episodes.slice(-pageSize),
+    frames, blocked: retries >= retryLimit, owner: row.owner === user }
 }
 
-function advance(state: Run) {
-  const agent = new QLearning(state.seed + state.episodes.length * 31 + state.retries)
+async function pathKey(path: string) {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(path))
+  return Array.from(new Uint8Array(hash, 0, 12), n => n.toString(16).padStart(2, '0')).join('')
+}
+
+async function advance(state: Run, revision: number) {
+  // shortcut: keep the checkpoint within D1's row size; shard it if substantially larger runs are needed.
+  const agent = new QLearning((state.seed + revision * 1009) >>> 0, 4096)
   agent.restore(state.table)
+  const paths = new Set<string>()
+  for (const path of state.paths) paths.add(path.includes(',') ? await pathKey(path) : path)
+  for (let attempt = 0; attempt < attemptsPerRequest && state.episodes.length < state.target &&
+    state.retries < retryLimit; attempt += 1) {
+    await episode(state, agent, paths)
+  }
+  state.paths = [...paths]
+  state.table = agent.checkpoint()
+}
+
+async function episode(state: Run, agent: QLearning, paths: Set<string>) {
   const game = new CaveGame(4, undefined, state.portals)
   const frames = [game.frame()]
-  const epsilon = Math.max(0.05, 1 - 0.95 * state.episodes.length / (state.target - 1))
+  const epsilon = Math.min(1, Math.max(0.10, 1 - 0.9 * state.episodes.length / (state.target - 1)) + state.retries / 35)
+  const transitions: Parameters<QLearning['remember']>[0][] = []
   let observation = game.observe()
   let score = 0
   while (game.outcome === 'running') {
@@ -44,20 +67,21 @@ function advance(state: Run) {
     const next = game.observe()
     const frame = game.frame()
     const failed = frame.outcome !== 'running' && frame.outcome !== 'escaped'
-    agent.remember({ from: observation, action, reward: game.value - value - (failed ? game.value : 0),
+    transitions.push({ from: observation, action, reward: game.value - value - (failed ? game.value : 0),
       to: next, terminated: frame.outcome !== 'running' })
     frames.push(frame)
     observation = next
   }
   const path = frames.filter((frame, i) => i === 0 || frame.position.join() !== frames[i - 1].position.join())
     .map(frame => frame.position.join()).join(';')
-  if (state.paths.includes(path)) {
+  const key = await pathKey(path)
+  if (paths.has(key)) {
     state.retries += 1
     return
   }
   state.retries = 0
-  state.paths.push(path)
-  state.table = agent.checkpoint()
+  paths.add(key)
+  for (const transition of transitions) agent.remember(transition)
   state.frames = frames
   state.episodes.push({ score, outcome: game.outcome, steps: game.step })
 }
@@ -75,15 +99,25 @@ async function api(request: Request, db: { prepare(sql: string): Statement }, ur
       return json({ runs: results, signedIn: Boolean(user) })
     }
     const row = await db.prepare('SELECT * FROM online_runs WHERE id = ?').bind(id).first<Row>()
-    return row ? json(view(row, JSON.parse(row.state), user)) : json({ error: '학습 기록을 찾을 수 없습니다.' }, 404)
+    if (!row) return json({ error: '학습 기록을 찾을 수 없습니다.' }, 404)
+    const state: Run = JSON.parse(row.state)
+    const before = Number(url.searchParams.get('before'))
+    if (Number.isSafeInteger(before) && before >= 2) {
+      const end = Math.min(before - 1, state.episodes.length)
+      return json({ end, episodes: state.episodes.slice(Math.max(0, end - pageSize), end) })
+    }
+    return json(view(row, state, user))
   }
   if (request.method !== 'POST') return json({ error: '지원하지 않는 요청입니다.' }, 405)
   if (request.headers.get('Origin') !== url.origin) return json({ error: '사이트에서 요청해 주세요.' }, 403)
   if (!user) return json({ error: '학습을 시작하려면 로그인해 주세요.' }, 401)
+  const target = Number(url.searchParams.get('target') ?? (id ? 0 : targets[0]))
+  if ((target || !id || url.searchParams.has('target')) && !targets.includes(target)) {
+    return json({ error: '학습 횟수는 1,000회 또는 5,000회로 설정해 주세요.' }, 400)
+  }
   if (!id) {
     const portals = url.searchParams.get('portals') !== 'off'
-    // shortcut: cap episodes per run and pace creation to keep free-tier CPU and storage usage bounded.
-    const state: Run = { portals, seed: Date.now() % 2147483648, target: 20, retries: 0,
+    const state: Run = { portals, seed: Date.now() % 2147483648, target, retries: 0,
       paths: [], table: [], episodes: [], frames: [] }
     const row = { id: crypto.randomUUID(), owner: user, revision: 0, state: JSON.stringify(state) }
     const now = Date.now()
@@ -96,8 +130,12 @@ async function api(request: Request, db: { prepare(sql: string): Statement }, ur
   if (!row) return json({ error: '학습 기록을 찾을 수 없습니다.' }, 404)
   if (row.owner !== user) return json({ error: '이 학습을 시작한 팀원만 실행할 수 있습니다.' }, 403)
   const state: Run = JSON.parse(row.state)
-  if (state.episodes.length < state.target && state.retries < 20) {
-    advance(state)
+  if (target > state.target) {
+    state.target = target
+    state.retries = 0
+  }
+  if (state.episodes.length < state.target && state.retries < retryLimit) {
+    await advance(state, row.revision)
     const result = await db.prepare('UPDATE online_runs SET state = ?, revision = revision + 1 WHERE id = ? AND revision = ?')
       .bind(JSON.stringify(state), id, row.revision).run()
     if (!result.meta.changes) return json({ error: '이미 진행 중입니다. 잠시 뒤 다시 시도해 주세요.' }, 409)
