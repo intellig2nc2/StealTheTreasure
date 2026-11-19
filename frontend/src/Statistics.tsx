@@ -38,16 +38,17 @@ function Metrics({ summary, title, note }: { summary: Partial<Summary> & Pick<St
   </section>
 }
 
-function Results({ history, watch, replay, busy = false }: {
-  history: StatsRow[]; watch?: Watch; replay?: (name: Replay) => void; busy?: boolean
+function Results({ history, allRows, watch, replay, busy = false }: {
+  history: StatsRow[]; allRows?: StatsRow[]; watch?: Watch; replay?: (name: Replay) => void; busy?: boolean
 }) {
   const [windowSize, setWindowSize] = useState('1000')
   const current = history.at(-1)
   const plotted = useMemo(() => {
     if (windowSize !== 'all') return history.slice(-Number(windowSize))
+    if (allRows) return allRows
     const stride = Math.ceil(history.length / 1000)
     return history.filter((_, i) => i % stride === 0 || i === history.length - 1)
-  }, [history, windowSize])
+  }, [history, allRows, windowSize])
   const reasons = current ? [
     { name: '케르베로스', count: current.cerberus ?? 0 }, { name: '압사', count: current.crushed ?? 0 },
     { name: '체력 소진', count: current.hp_depleted ?? 0 },
@@ -68,7 +69,7 @@ function Results({ history, watch, replay, busy = false }: {
       </section>}
       <div className="stats-filter"><h2>에피소드 추이</h2><label>표시 구간
         <select value={windowSize} onChange={event => setWindowSize(event.target.value)}>
-          <option value="100">최근 100회</option><option value="1000">최근 1,000회</option><option value="all">전체{history.length > 1000 ? ' · 간격 표본' : ''}</option>
+          <option value="100">최근 100회</option><option value="1000">최근 1,000회</option><option value="all">전체{(current.count ?? history.length) > 1000 ? ' · 간격 표본' : ''}</option>
         </select></label></div>
       <div className="charts">
         {chart.map(({ title, lines }) => {
@@ -114,7 +115,7 @@ function Results({ history, watch, replay, busy = false }: {
   </>
 }
 
-function onlineRows(episodes: OnlineEpisode[]): StatsRow[] {
+function onlineRows(episodes: OnlineEpisode[]) {
   const outcomes = { escaped: 0, cerberus: 0, crushed: 0, hp_depleted: 0, timeout: 0, dead_end: 0 }
   const fields = { value: 'avg_value', moves: 'avg_moves', hp: 'avg_hp', noise: 'avg_noise', weight: 'avg_weight' } as const
   const totals = { value: 0, moves: 0, hp: 0, noise: 0, weight: 0 }
@@ -123,26 +124,37 @@ function onlineRows(episodes: OnlineEpisode[]): StatsRow[] {
   let recentScore = 0
   let bestScore = 0
   let bestValue: number | undefined
-  return episodes.map((entry, index) => {
+  const recent: StatsRow[] = []
+  const all: StatsRow[] = []
+  const stride = Math.ceil(episodes.length / 1000)
+  const fieldNames = Object.keys(fields) as (keyof typeof fields)[]
+  episodes.forEach((entry, index) => {
     const count = index + 1
     if (entry.outcome !== 'running') outcomes[entry.outcome] += 1
     cumulative += entry.score
     recentScore += entry.score - (episodes[index - 100]?.score ?? 0)
     bestScore = Math.max(bestScore, entry.score)
     if (entry.value !== undefined) bestValue = Math.max(bestValue ?? 0, entry.value)
-    const row: StatsRow = { ...outcomes, count, episode: count, reward: entry.score, cumulative,
-      epsilon: entry.epsilon, avg100: recentScore / Math.min(100, count), avg_score: cumulative / count,
-      best_score: bestScore, best_value: bestValue, escape_rate: 100 * outcomes.escaped / count }
-    for (const field of Object.keys(fields) as (keyof typeof fields)[]) {
+    for (const field of fieldNames) {
       const value = entry[field]
       if (value !== undefined) {
         totals[field] += value
         counts[field] += 1
       }
+    }
+    const inRecent = count > episodes.length - 1000
+    const inAll = index % stride === 0 || count === episodes.length
+    if (!inRecent && !inAll) return
+    const row: StatsRow = { ...outcomes, count, episode: count, reward: entry.score, cumulative,
+      epsilon: entry.epsilon, avg100: recentScore / Math.min(100, count), avg_score: cumulative / count,
+      best_score: bestScore, best_value: bestValue, escape_rate: 100 * outcomes.escaped / count }
+    for (const field of fieldNames) {
       if (counts[field]) row[fields[field]] = totals[field] / counts[field]
     }
-    return row
+    if (inRecent) recent.push(row)
+    if (inAll) all.push(row)
   })
+  return { recent, all }
 }
 
 function OnlineStatistics({ preferred }: { preferred: string }) {
@@ -164,16 +176,18 @@ function OnlineStatistics({ preferred }: { preferred: string }) {
     if (!selected) return
     let stale = false
     let timer: ReturnType<typeof setTimeout>
-    let episodes: OnlineEpisode[] = []
+    const episodes: OnlineEpisode[] = []
+    let rendered = -1
     async function refresh() {
       try {
         const next = await onlineRequest<{ completed: number; target: number; blocked: boolean; episodes: OnlineEpisode[] }>(
           `/${selected}?stats=${episodes.length}`,
         )
         if (stale) return
-        if (next.episodes.length || !episodes.length) {
-          episodes = [...episodes, ...next.episodes]
-          setSnapshot({ id: selected, episodes })
+        episodes.push(...next.episodes)
+        if (episodes.length !== rendered && (episodes.length >= next.completed || episodes.length - rendered >= 5000)) {
+          rendered = episodes.length
+          setSnapshot({ id: selected, episodes: episodes.slice() })
         }
         setError('')
         if (episodes.length < next.completed) timer = setTimeout(refresh, 0)
@@ -189,7 +203,7 @@ function OnlineStatistics({ preferred }: { preferred: string }) {
   }, [selected])
 
   const matching = snapshot?.id === selected ? snapshot : undefined
-  const rows = useMemo(() => matching ? onlineRows(matching.episodes) : [], [matching])
+  const rows = useMemo(() => matching ? onlineRows(matching.episodes) : undefined, [matching])
   return <>
     <div className="stats-filter"><label>공유 학습
       <select value={selected} onChange={event => setSelected(event.target.value)}>
@@ -201,7 +215,7 @@ function OnlineStatistics({ preferred }: { preferred: string }) {
       </select></label></div>
     {error && <p className="error" role="alert">{error}</p>}
     {selected && !matching && !error ? <p role="status">온라인 학습 통계를 불러오는 중</p> :
-      <Results key={selected} history={rows} />}
+      <Results key={selected} history={rows?.recent ?? []} allRows={rows?.all} />}
   </>
 }
 

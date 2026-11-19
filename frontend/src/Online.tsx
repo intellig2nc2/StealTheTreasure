@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Cave from './Cave'
 import { CaveGame } from './local/game'
 import { outcomeLabels } from './types'
@@ -15,6 +15,8 @@ export default function Online({ visible }: { visible: boolean }) {
   const [signedIn, setSignedIn] = useState(false)
   const [portals, setPortals] = useState(true)
   const [target, setTarget] = useState(1000)
+  const [speed, setSpeed] = useState(1)
+  const currentSpeed = useRef(speed)
   const [archive, setArchive] = useState<{ id: string; end: number; episodes: OnlineEpisode[] }>()
   const [run, setRun] = useState<Run>()
   const [running, setRunning] = useState(false)
@@ -61,7 +63,7 @@ export default function Online({ visible }: { visible: boolean }) {
         setRun(next)
         setError('')
         if (next.blocked || next.completed >= next.target) setRunning(false)
-        else timer = setTimeout(refresh, running ? 600 : 2000)
+        else timer = setTimeout(refresh, running ? Math.max(40, 600 / currentSpeed.current) : 2000)
       } catch (failure) {
         if (cancelled) return
         setError(failure instanceof Error ? failure.message : '학습 상태를 불러오지 못했습니다.')
@@ -77,12 +79,16 @@ export default function Online({ visible }: { visible: boolean }) {
     setFrameIndex(1)
     const count = run?.frames.length ?? 0
     if (!visible || count < 2) return
+    if (speed === 100) {
+      setFrameIndex(count)
+      return
+    }
     const timer = setInterval(() => setFrameIndex(index => {
       if (index + 1 >= count) clearInterval(timer)
       return Math.min(index + 1, count)
-    }), Math.max(20, Math.min(110, 1450 / count)))
+    }), Math.max(16, Math.min(110, 1450 / count) / speed))
     return () => clearInterval(timer)
-  }, [run?.id, episode, run?.frames.length, visible])
+  }, [run?.id, episode, run?.frames.length, visible, speed])
 
   function choose(id: string) {
     setSelected(id)
@@ -162,10 +168,17 @@ export default function Online({ visible }: { visible: boolean }) {
               </option>)}
             </select></label>
             <p className="hint">시작한 사람이 브라우저 탭을 열어 두면 학습이 계속됩니다. 현재 주소를 공유하면 팀원도 같은 학습을 볼 수 있습니다.</p>
+            <label className="episode-select"><span>배속</span><select value={speed} onChange={event => {
+              currentSpeed.current = Number(event.target.value)
+              setSpeed(currentSpeed.current)
+            }}>
+              {[1, 2, 5, 10, 100].map(rate => <option key={rate} value={rate}>{rate}×</option>)}
+            </select></label>
             {signedIn ? <div>
               <label className="episode-select"><span>목표 회차</span><select value={target}
                 onChange={event => setTarget(Number(event.target.value))}>
                 <option value={1000}>1,000회</option><option value={5000}>5,000회</option>
+                <option value={50000}>50,000회</option>
               </select></label>
               <label className="map-toggle"><input type="checkbox" checked={!portals} onChange={event => setPortals(!event.target.checked)} /> 지름길 없이</label>
               <button className="primary" disabled={busy || running} onClick={start}>새 학습 시작</button>
