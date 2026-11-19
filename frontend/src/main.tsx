@@ -264,7 +264,10 @@ function App() {
             setTab('online')
           }}>온라인 학습</button>}
         </nav>
-        <span className="connection"><i className={watcher.connected ? 'online' : ''} />{browserTraining ? (watcher.connected ? '내 브라우저에서 실행' : '브라우저 준비 중') : (watcher.connected ? '서버 연결됨' : '서버 연결 대기')}</span>
+        <span className="connection">{tab === 'online' ? '서버에서 실행' : <>
+          <i className={watcher.connected ? 'online' : ''} />
+          {browserTraining ? (watcher.connected ? '내 브라우저에서 실행' : '브라우저 준비 중') : (watcher.connected ? '서버 연결됨' : '서버 연결 대기')}
+        </>}</span>
       </div>
     </header>
 

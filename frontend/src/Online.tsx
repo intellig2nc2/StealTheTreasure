@@ -128,7 +128,7 @@ export default function Online() {
         <section className="panel board">
           <div className="panel-head"><h2>공유 학습</h2></div>
           <div className="board-body">
-            <label>최근 학습 <select value={selected} onChange={event => choose(event.target.value)}>
+            <label className="episode-select"><span>최근 학습</span><select value={selected} onChange={event => choose(event.target.value)}>
               <option value="">학습 선택</option>
               {selected && !entries.some(entry => entry.id === selected) && <option value={selected}>공유 링크의 학습</option>}
               {entries.map(entry => <option key={entry.id} value={entry.id}>
