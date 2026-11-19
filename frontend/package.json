@@ -7,7 +7,8 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "build:sites": "tsc --noEmit && vite build --mode sites"
+    "build:sites": "tsc --noEmit && vite build --mode sites",
+    "build:cloudflare": "tsc --noEmit && node cloudflare/build.mjs"
   },
   "dependencies": {
     "@fontsource-variable/space-grotesk": "^5.2.10",

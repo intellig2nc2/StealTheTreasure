@@ -12,6 +12,8 @@ import { readCustomGrid, saveCustomGrid } from './customMap'
 const Statistics = lazy(() => import('./Statistics'))
 const History = lazy(() => import('./History'))
 const MapEditor = lazy(() => import('./MapEditor'))
+const Online = lazy(() => import('./Online'))
+const onlineEnabled = browserTraining && import.meta.env.VITE_SHARED_TRAINING === '1'
 const speeds = [1, 2, 5, 10, 50, 100, 'MAX'] as const
 type Speed = typeof speeds[number]
 type Mode = 'manual' | 'training' | 'replay'
@@ -73,7 +75,9 @@ function Meter({ label, value, limit, suffix, tone }: { label: string; value?: n
 }
 
 function App() {
-  const [tab, setTab] = useState<'cave' | 'stats' | 'history' | 'editor'>('cave')
+  const [tab, setTab] = useState<'cave' | 'stats' | 'history' | 'editor' | 'online'>(
+    onlineEnabled && /^#online(?:\/|$)/.test(location.hash) ? 'online' : 'cave',
+  )
   const [mode, setMode] = useState<Mode>('manual')
   const [speed, setSpeed] = useState<Speed>(5)
   const [watch, setWatch] = useState(initial)
@@ -255,6 +259,10 @@ function App() {
           <button aria-current={tab === 'stats' ? 'page' : undefined} onClick={() => setTab('stats')}>학습 통계</button>
           {browserTraining && <button aria-current={tab === 'history' ? 'page' : undefined} onClick={() => setTab('history')}>학습 기록</button>}
           {browserTraining && <button aria-current={tab === 'editor' ? 'page' : undefined} onClick={() => setTab('editor')}>지도 편집</button>}
+          {onlineEnabled && <button aria-current={tab === 'online' ? 'page' : undefined} onClick={() => {
+            if (!location.hash.startsWith('#online')) window.history.replaceState(null, '', '#online')
+            setTab('online')
+          }}>온라인 학습</button>}
         </nav>
         <span className="connection"><i className={watcher.connected ? 'online' : ''} />{browserTraining ? (watcher.connected ? '내 브라우저에서 실행' : '브라우저 준비 중') : (watcher.connected ? '서버 연결됨' : '서버 연결 대기')}</span>
       </div>
@@ -399,7 +407,8 @@ function App() {
           <h2>대표 에피소드 다시 보기</h2>
           <div>{watch.replays.map(name => <button key={name} disabled={busy} aria-pressed={mode === 'replay' && selected === name} onClick={() => replay(name)}>{replays[name]}</button>)}</div>
         </section>}
-      </> : tab === 'editor' ? <Suspense fallback={<p>지도 편집기를 여는 중</p>}>
+      </> : tab === 'online' ? <Suspense fallback={<p>공유 학습을 여는 중</p>}><Online /></Suspense>
+      : tab === 'editor' ? <Suspense fallback={<p>지도 편집기를 여는 중</p>}>
         <MapEditor saved={savedGrid} onSave={grid => { saveCustomGrid(grid); setSavedGrid(grid) }} />
       </Suspense> : tab === 'history' ? <Suspense fallback={<p>학습 기록을 여는 중</p>}>
         <History runId={watch.run_id} completed={watch.episode} warning={watch.error} />
