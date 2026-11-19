@@ -1,7 +1,7 @@
 import { CaveGame } from '../src/local/game'
 import { QLearning } from '../src/local/qlearning'
 import type { QCheckpoint } from '../src/local/qlearning'
-import type { Frame } from '../src/types'
+import type { Frame, OnlineEpisode } from '../src/types'
 
 declare const assets: Record<string, [string, string]>
 type Statement = {
@@ -17,7 +17,7 @@ type Run = {
   retries: number
   paths: string[]
   table: QCheckpoint
-  episodes: { score: number; outcome: Frame['outcome']; steps: number }[]
+  episodes: OnlineEpisode[]
   frames: Frame[]
 }
 type Row = { id: string; owner: string; revision: number; state: string }
@@ -83,7 +83,8 @@ async function episode(state: Run, agent: QLearning, paths: Set<string>) {
   paths.add(key)
   for (const transition of transitions) agent.remember(transition)
   state.frames = frames
-  state.episodes.push({ score, outcome: game.outcome, steps: game.step })
+  state.episodes.push({ score, outcome: game.outcome, steps: game.step, epsilon, value: game.value,
+    moves: game.moves, hp: game.hp, noise: game.noise, weight: game.weight })
 }
 
 async function api(request: Request, db: { prepare(sql: string): Statement }, url: URL) {
@@ -101,6 +102,15 @@ async function api(request: Request, db: { prepare(sql: string): Statement }, ur
     const row = await db.prepare('SELECT * FROM online_runs WHERE id = ?').bind(id).first<Row>()
     if (!row) return json({ error: '학습 기록을 찾을 수 없습니다.' }, 404)
     const state: Run = JSON.parse(row.state)
+    if (url.searchParams.has('stats')) {
+      const after = Number(url.searchParams.get('stats'))
+      if (!Number.isSafeInteger(after) || after < 0 || after > state.episodes.length) {
+        return json({ error: '통계 범위를 확인해 주세요.' }, 400)
+      }
+      const completed = state.episodes.length
+      return json({ target: state.target, completed, blocked: state.retries >= retryLimit,
+        episodes: state.episodes.slice(after, after + 500) })
+    }
     const before = Number(url.searchParams.get('before'))
     if (Number.isSafeInteger(before) && before >= 2) {
       const end = Math.min(before - 1, state.episodes.length)

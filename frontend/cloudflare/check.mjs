@@ -60,5 +60,13 @@ assert.ok(table.length > 0)
 assert.ok(episodes.every(episode => episode.outcome === 'escaped' || episode.score === 0))
 assert.equal((await (await request(list)).json()).runs[0].completed, run.completed)
 assert.deepEqual(await (await request(path + '?before=21')).json(), { end: 20, episodes: episodes.slice(0, 20) })
+assert.equal((await request(path + '?stats=-1')).status, 400)
+assert.deepEqual(await (await request(path + '?stats=0')).json(), {
+  completed: 5000, target: 5000, blocked: false, episodes: episodes.slice(0, 500),
+})
+assert.deepEqual(await (await request(path + '?stats=4999')).json(), {
+  completed: 5000, target: 5000, blocked: false, episodes: episodes.slice(-1),
+})
+assert.ok(episodes.every(entry => typeof entry.epsilon === 'number' && typeof entry.hp === 'number'))
 timings.sort((a, b) => a - b)
 console.log(`Verified ${run.completed} unique episodes in ${timings.length} requests. Local p95: ${timings[Math.floor(timings.length * 0.95)].toFixed(1)}ms. Checkpoint: ${bytes} bytes.`)

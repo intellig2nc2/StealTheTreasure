@@ -2,29 +2,23 @@ import { useEffect, useMemo, useState } from 'react'
 import Cave from './Cave'
 import { CaveGame } from './local/game'
 import { outcomeLabels } from './types'
-import type { Frame } from './types'
+import type { Frame, OnlineEpisode } from './types'
+import { onlineRequest as api } from './online-api'
+import type { Entry } from './online-api'
 
-type Entry = { id: string; createdAt: number; completed: number; target: number }
-type Episode = { score: number; outcome: Frame['outcome']; steps: number }
 type Run = { id: string; portals: boolean; target: number; completed: number; blocked: boolean; owner: boolean; frames: Frame[]
-  episodes: Episode[] }
+  episodes: OnlineEpisode[] }
 
-async function api<T>(path = '', method = 'GET'): Promise<T> {
-  const response = await fetch('/api/online' + path, { method })
-  const data = await response.json()
-  if (!response.ok) throw new Error(data.error)
-  return data
-}
-
-export default function Online() {
+export default function Online({ visible }: { visible: boolean }) {
   const [selected, setSelected] = useState(() => location.hash.split('/')[1] ?? '')
   const [entries, setEntries] = useState<Entry[]>([])
   const [signedIn, setSignedIn] = useState(false)
   const [portals, setPortals] = useState(true)
   const [target, setTarget] = useState(1000)
-  const [archive, setArchive] = useState<{ id: string; end: number; episodes: Episode[] }>()
+  const [archive, setArchive] = useState<{ id: string; end: number; episodes: OnlineEpisode[] }>()
   const [run, setRun] = useState<Run>()
   const [running, setRunning] = useState(false)
+  const observing = visible || running
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [frameIndex, setFrameIndex] = useState(1)
@@ -38,6 +32,7 @@ export default function Online() {
   const newest = archivePage?.end ?? episode
 
   useEffect(() => {
+    if (!visible) return
     let cancelled = false
     async function refresh() {
       try {
@@ -53,10 +48,10 @@ export default function Online() {
     void refresh()
     const timer = setInterval(refresh, 5000)
     return () => { cancelled = true; clearInterval(timer) }
-  }, [])
+  }, [visible])
 
   useEffect(() => {
-    if (!selected || (ended && !running)) return
+    if (!selected || !observing || (ended && !running)) return
     let cancelled = false
     let timer: ReturnType<typeof setTimeout>
     async function refresh() {
@@ -76,18 +71,18 @@ export default function Online() {
     }
     void refresh()
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [selected, running, ended])
+  }, [selected, running, ended, observing])
 
   useEffect(() => {
     setFrameIndex(1)
     const count = run?.frames.length ?? 0
-    if (count < 2) return
+    if (!visible || count < 2) return
     const timer = setInterval(() => setFrameIndex(index => {
       if (index + 1 >= count) clearInterval(timer)
       return Math.min(index + 1, count)
     }), Math.max(20, Math.min(110, 1450 / count)))
     return () => clearInterval(timer)
-  }, [run?.id, episode, run?.frames.length])
+  }, [run?.id, episode, run?.frames.length, visible])
 
   function choose(id: string) {
     setSelected(id)
@@ -131,7 +126,7 @@ export default function Online() {
   async function earlier() {
     const before = newest - records.length + 1
     try {
-      const page = await api<{ end: number; episodes: Episode[] }>(`/${selected}?before=${before}`)
+      const page = await api<{ end: number; episodes: OnlineEpisode[] }>(`/${selected}?before=${before}`)
       setArchive({ id: selected, ...page })
     } catch {
       setError('이전 회차를 불러오지 못했습니다.')
@@ -166,7 +161,7 @@ export default function Online() {
                 {new Date(entry.createdAt).toLocaleString('ko-KR')} · {entry.id.slice(0, 5)} · {entry.completed}/{entry.target}회
               </option>)}
             </select></label>
-            <p className="hint">시작한 사람이 이 화면을 열어 두면 학습이 계속됩니다. 현재 주소를 공유하면 팀원도 같은 학습을 볼 수 있습니다.</p>
+            <p className="hint">시작한 사람이 브라우저 탭을 열어 두면 학습이 계속됩니다. 현재 주소를 공유하면 팀원도 같은 학습을 볼 수 있습니다.</p>
             {signedIn ? <div>
               <label className="episode-select"><span>목표 회차</span><select value={target}
                 onChange={event => setTarget(Number(event.target.value))}>

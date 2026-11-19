@@ -17,6 +17,10 @@ export type Summary = {
   crushed: number; hp_depleted: number; timeout: number; dead_end: number
 }
 export type Row = Summary & { episode: number; epsilon: number; reward: number; cumulative: number; avg100: number; stage: number }
+export type OnlineEpisode = {
+  score: number; outcome: Outcome; steps: number
+  value?: number; moves?: number; hp?: number; noise?: number; weight?: number; epsilon?: number
+}
 export type Watch = {
   run_id: string; status: Status; episode: number; total: number; history: Row[]; live: Trace | null
   replays: Replay[]; evaluation: Summary | null; error: string | null; checkpoint: boolean; q_checkpoint?: boolean

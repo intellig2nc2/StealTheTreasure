@@ -78,6 +78,7 @@ function App() {
   const [tab, setTab] = useState<'cave' | 'stats' | 'history' | 'editor' | 'online'>(
     onlineEnabled && /^#online(?:\/|$)/.test(location.hash) ? 'online' : 'cave',
   )
+  const [onlineOpened, setOnlineOpened] = useState(tab === 'online')
   const [mode, setMode] = useState<Mode>('manual')
   const [speed, setSpeed] = useState<Speed>(5)
   const [watch, setWatch] = useState(initial)
@@ -261,6 +262,7 @@ function App() {
           {browserTraining && <button aria-current={tab === 'editor' ? 'page' : undefined} onClick={() => setTab('editor')}>지도 편집</button>}
           {onlineEnabled && <button aria-current={tab === 'online' ? 'page' : undefined} onClick={() => {
             if (!location.hash.startsWith('#online')) window.history.replaceState(null, '', '#online')
+            setOnlineOpened(true)
             setTab('online')
           }}>온라인 학습</button>}
         </nav>
@@ -273,6 +275,9 @@ function App() {
 
     <main id="game" tabIndex={-1} data-enter="">
       {error && <p className="error" role="alert">{error} <button onClick={() => setError('')}>닫기</button></p>}
+      {onlineOpened && <div hidden={tab !== 'online'}><Suspense fallback={<p>공유 학습을 여는 중</p>}>
+        <Online visible={tab === 'online'} />
+      </Suspense></div>}
       {tab === 'cave' ? <>
         <section className="intro">
           <div><p className="kicker">강화학습 시뮬레이션</p>
@@ -410,12 +415,14 @@ function App() {
           <h2>대표 에피소드 다시 보기</h2>
           <div>{watch.replays.map(name => <button key={name} disabled={busy} aria-pressed={mode === 'replay' && selected === name} onClick={() => replay(name)}>{replays[name]}</button>)}</div>
         </section>}
-      </> : tab === 'online' ? <Suspense fallback={<p>공유 학습을 여는 중</p>}><Online /></Suspense>
+      </> : tab === 'online' ? null
       : tab === 'editor' ? <Suspense fallback={<p>지도 편집기를 여는 중</p>}>
         <MapEditor saved={savedGrid} onSave={grid => { saveCustomGrid(grid); setSavedGrid(grid) }} />
       </Suspense> : tab === 'history' ? <Suspense fallback={<p>학습 기록을 여는 중</p>}>
         <History runId={watch.run_id} completed={watch.episode} warning={watch.error} />
-      </Suspense> : <Suspense fallback={<p>학습 통계를 여는 중</p>}><Statistics history={history} watch={watch} replay={replay} busy={busy} /></Suspense>}
+      </Suspense> : <Suspense fallback={<p>학습 통계를 여는 중</p>}>
+        <Statistics history={history} watch={watch} replay={replay} busy={busy} onlineEnabled={onlineEnabled} />
+      </Suspense>}
     </main>
     <footer><span>SHH! CERBERUS</span><a href="https://github.com/intellig2nc2/StealTheTreasure">GitHub ↗</a></footer>
   </>
